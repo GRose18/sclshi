@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="/favicon.ico">
-<title>sclshi Markets</title>
+<title>Sclshi Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -14,7 +14,7 @@
     --text:#eeeef5;--text2:#8888a8;--text3:#55556a;
     --green:#00d084;--green-bg:rgba(0,208,132,0.08);--green-dim:rgba(0,208,132,0.18);
     --red:#ff4560;--red-bg:rgba(255,69,96,0.08);--red-dim:rgba(255,69,96,0.18);
-    --accent:#7c6af7;--accent-bg:rgba(124,106,247,0.12);--accent-dim:rgba(124,106,247,0.25);
+    --accent:#4da3ff;--accent-bg:rgba(77,163,255,0.12);--accent-dim:rgba(77,163,255,0.26);
     --gold:#f0c040;--gold-bg:rgba(240,192,64,0.1);
     --blue:#3b9eff;--blue-bg:rgba(59,158,255,0.08);--blue-dim:rgba(59,158,255,0.2);
     --orange:#ff8c42;--orange-bg:rgba(255,140,66,0.08);--orange-dim:rgba(255,140,66,0.2);
@@ -44,29 +44,29 @@
   .error-msg{background:var(--red-bg);border:1px solid var(--red-dim);color:var(--red);padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:14px}
 
   /* LIVE SCREEN */
-  #live-screen{display:none;min-height:100vh;background:#0d0a1e;color:#fff;font-family:'Inter',sans-serif}
+  #live-screen{display:none;min-height:100vh;background:#08111f;color:#fff;font-family:'Inter',sans-serif}
   .live-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:40px 20px}
   .live-brand{font-size:52px;font-weight:700;letter-spacing:-0.04em;margin-bottom:4px}
-  .live-brand span{color:#a78bfa}
-  .live-tagline{font-size:11px;letter-spacing:0.25em;text-transform:uppercase;color:#1e1540;margin-bottom:60px}
+  .live-brand span{color:#7ac8ff}
+  .live-tagline{font-size:11px;letter-spacing:0.25em;text-transform:uppercase;color:#1f4f78;margin-bottom:60px}
   .live-stats{display:flex;gap:60px;margin-bottom:60px;flex-wrap:wrap;justify-content:center}
   .live-stat{text-align:center}
   .live-stat-num{font-size:48px;font-weight:700;letter-spacing:-0.03em;color:#e8e0ff;font-variant-numeric:tabular-nums}
   .live-stat-label{font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:#f0c040;margin-top:6px}
   .live-markets{width:100%;max-width:600px;margin-bottom:60px}
-  .live-market-row{border-top:1px solid #1e1540;padding:20px 0;display:flex;justify-content:space-between;align-items:center;gap:20px}
-  .live-market-row:last-child{border-bottom:1px solid #1e1540}
-  .live-market-q{font-size:14px;font-weight:500;color:#3d2a70}
+  .live-market-row{border-top:1px solid #173b5d;padding:20px 0;display:flex;justify-content:space-between;align-items:center;gap:20px}
+  .live-market-row:last-child{border-bottom:1px solid #173b5d}
+  .live-market-q{font-size:14px;font-weight:500;color:#8cbde7}
   .live-countdown{font-size:22px;font-weight:700;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;color:#fff}
   .live-countdown.urgent{color:#ff4560}
   .live-countdown.soon{color:#f0c040}
-  .live-dot{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:#1e1540;margin-bottom:40px}
+  .live-dot{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:#245882;margin-bottom:40px}
   .dot{width:5px;height:5px;border-radius:50%;background:#00d084;animation:pulse 2s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}
   .access-gate{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:20px}
-  .access-input{background:transparent;border:none;border-bottom:1px solid #2a1a55;color:#e8e0ff;font-family:'Inter',sans-serif;font-size:20px;padding:8px 0;outline:none;text-align:center;width:220px;letter-spacing:0.15em}
+  .access-input{background:transparent;border:none;border-bottom:1px solid #23527c;color:#e8f4ff;font-family:'Inter',sans-serif;font-size:20px;padding:8px 0;outline:none;text-align:center;width:220px;letter-spacing:0.15em}
   .access-input::placeholder{color:#f0c040}
-  .access-input:focus{border-bottom-color:#a78bfa}
+  .access-input:focus{border-bottom-color:#7ac8ff}
   .access-hint{font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:#f0c040}
   .access-error{font-size:11px;color:#ff4560;letter-spacing:0.05em}
   /* APP SHELL */
@@ -382,7 +382,7 @@
   <div class="auth-card">
     <div class="auth-logo">
       <span class="star">✡</span>
-      <div class="brand">Jew<span>shi</span></div>
+      <div class="brand">Scl<span>shi</span></div>
       <div class="tagline">Prediction Markets</div>
     </div>
     <div id="auth-error" class="error-msg" style="display:none;"></div>
@@ -438,7 +438,7 @@
 <div id="register-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
   <div class="auth-card" style="max-height:90vh;overflow-y:auto;">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center;color:var(--text);">Create Account</h2>
-    <p style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">Sign up to start trading on sclshi.</p>
+    <p style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">Sign up to start trading on Sclshi.</p>
     <div id="reg-error" class="error-msg" style="display:none;"></div>
     <div class="form-group"><label>Full Name</label><input type="text" id="reg-name" placeholder="Your full name"></div>
     <div class="form-group"><label>Email</label><input type="email" id="reg-email" placeholder="you@example.com"></div>
@@ -454,7 +454,7 @@
 <!-- LIVE SCREEN -->
 <div id="live-screen">
   <div class="live-wrap">
-    <div class="live-brand">Jew<span>shi</span></div>
+    <div class="live-brand">Scl<span>shi</span></div>
     <div class="live-tagline">Markets</div>
     <div class="live-dot"><div class="dot"></div>Live</div>
     <div class="live-stats">
@@ -464,12 +464,12 @@
     </div>
     <div class="live-markets" id="live-markets"></div>
     <div class="access-gate">
-      <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#444;margin-bottom:12px;">Go follow the sclshi instagram.</div>
+      <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#444;margin-bottom:12px;">Go follow the Sclshi instagram.</div>
       <a href="https://www.instagram.com/sclshi.official/" target="_blank" style="display:flex;align-items:center;gap:8px;color:#fff;text-decoration:none;font-size:15px;font-weight:600;margin-bottom:28px;opacity:0.7;transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
         @sclshi.official
       </a>
-      <button onclick="goToMarkets()" style="background:#7c6af7;color:#fff;border:none;padding:14px 40px;border-radius:10px;font-family:'Inter',sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.02em;">Go to Markets →</button>
+      <button onclick="goToMarkets()" style="background:var(--accent);color:#fff;border:none;padding:14px 40px;border-radius:10px;font-family:'Inter',sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.02em;">Go to Markets →</button>
     </div>
     </div>
   </div>
@@ -479,7 +479,7 @@
 <div id="app">
   <div class="topbar">
     <div style="display:flex;align-items:center;gap:20px;">
-      <div class="topbar-brand">Jew<span>shi</span></div>
+      <div class="topbar-brand">Scl<span>shi</span></div>
       <span style="font-size:11px;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;">Markets</span>
     </div>
     <div class="topbar-right">
@@ -543,7 +543,7 @@
     <div id="tab-casino" class="tab-content">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;flex-wrap:wrap;gap:12px;">
         <div>
-          <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;">sclshi Casino</h2>
+          <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;">Sclshi Casino</h2>
           <p style="font-size:12px;color:var(--text3);margin-top:3px;">Play games with your credits</p>
         </div>
       </div>
@@ -1186,7 +1186,7 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
         <div>
           <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;">Remote Assistance</h2>
-          <p style="font-size:12px;color:var(--text3);margin-top:3px;">Open live sclshi sessions, see the full page, click through the app, type into fields, and coach multiple people with voice guidance.</p>
+          <p style="font-size:12px;color:var(--text3);margin-top:3px;">Open live Sclshi sessions, see the full page, click through the app, type into fields, and coach multiple people with voice guidance.</p>
         </div>
         <div class="assistance-badge active" id="assistance-connection-badge">Offline</div>
       </div>
@@ -1679,7 +1679,14 @@ async function api(method,path,body,extraHeaders={},timeoutMs=8000){
     }catch(e){
       throw new Error(`Server returned non-JSON for ${path}. Restart the server and try again.`);
     }
-    if(!res.ok) throw new Error(data.error||'Request failed');
+    if(!res.ok){
+      if(res.status===401 && authToken){
+        authToken=null;
+        currentUser=null;
+        localStorage.removeItem('ew_token');
+      }
+      throw new Error(data.error||'Request failed');
+    }
     return data;
   }catch(e){
     if(e.name==='AbortError') throw new Error(`Request to ${path} timed out. Restart the server and try again.`);
@@ -1687,6 +1694,12 @@ async function api(method,path,body,extraHeaders={},timeoutMs=8000){
   }finally{
     clearTimeout(timeoutId);
   }
+}
+
+function clearStoredAuth(){
+  authToken=null;
+  currentUser=null;
+  localStorage.removeItem('ew_token');
 }
 
 function getYesPercent(m){const t=(m.yes_shares||0)+(m.no_shares||0);return t===0?50:Math.round((m.yes_shares/t)*100);}
@@ -2343,13 +2356,13 @@ function renderAssistanceTab(){
         </div>
       </div>
     `).join(''):`<p style="font-size:13px;color:var(--text3);">No people are available to observe yet.</p>`;
-    incomingList.innerHTML=`<div class="assistance-item"><div style="font-size:13px;color:var(--text2);line-height:1.6;">Assistance starts right away for any account you open here. You can click around sclshi, type into fields, and use voice guidance from this dashboard while the user keeps a calm support experience.</div></div>`;
+    incomingList.innerHTML=`<div class="assistance-item"><div style="font-size:13px;color:var(--text2);line-height:1.6;">Assistance starts right away for any account you open here. You can click around Sclshi, type into fields, and use voice guidance from this dashboard while the user keeps a calm support experience.</div></div>`;
     helperForList.innerHTML=accessibleUsers.length?accessibleUsers.map(user=>`
       <div class="assistance-item">
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
           <div>
             <div style="font-size:14px;font-weight:700;color:var(--text);">${esc(user.name)}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px;">${user.online?'Currently in sclshi and ready to assist right away.':'Not currently online in sclshi.'}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px;">${user.online?'Currently in Sclshi and ready to assist right away.':'Not currently online in Sclshi.'}</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             <div class="assistance-badge ${user.online?'active':'stopped'}">${user.online?'Online':'Offline'}</div>
@@ -2371,7 +2384,7 @@ function renderAssistanceTab(){
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
           <div><div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">Live People</div><div style="font-size:24px;font-weight:800;color:var(--text);">${helperSessions.length}</div></div>
           <div><div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">Voice Guidance</div><div style="font-size:15px;font-weight:700;color:var(--green);">Enabled</div></div>
-          <div><div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">Control</div><div style="font-size:15px;font-weight:700;color:var(--green);">On in sclshi</div></div>
+          <div><div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">Control</div><div style="font-size:15px;font-weight:700;color:var(--green);">On in Sclshi</div></div>
         </div>
       </div>`:`<p style="font-size:13px;color:var(--text3);">No live assistance sessions yet. Check a few people on the left and click Assist Selected.</p>`;
     helperConsoleEl.innerHTML=helperSessions.length?`<div class="assistance-observer-grid">${helperSessions.map(session=>{
@@ -2393,7 +2406,7 @@ function renderAssistanceTab(){
           <input id="assist-input-${session.id}" type="text" placeholder="Type into the selected field" style="flex:1;min-width:180px;">
           <button class="btn-admin btn-sm" onclick="sendAssistanceInputForSession('${session.id}','assist-input-${session.id}')">Send Text</button>
         </div>
-        <div style="font-size:12px;color:var(--text3);line-height:1.55;margin-top:10px;">Clicking inside the preview activates sclshi elements for them. Use the text box for fields, then send a calm spoken instruction if helpful.</div>
+        <div style="font-size:12px;color:var(--text3);line-height:1.55;margin-top:10px;">Clicking inside the preview activates Sclshi elements for them. Use the text box for fields, then send a calm spoken instruction if helpful.</div>
         <textarea id="assist-voice-${session.id}" placeholder="Example: The messages tab is open. Look near the left side for your conversations." style="width:100%;min-height:84px;resize:vertical;margin-top:10px;"></textarea>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;">
           <div class="assistance-badge active">Interactive</div>
@@ -2498,7 +2511,7 @@ function describeAssistPreviewTarget(target){
 }
 function renderAssistancePreviewMarkup(sessionId, preview, seniorName){
   if(!preview?.html||!preview?.styles){
-    return `<div id="assist-preview-empty-${sessionId}" class="assistance-preview" style="display:flex;align-items:center;justify-content:center;padding:20px;color:var(--text3);font-size:13px;text-align:center;">Waiting for a live sclshi preview from ${esc(seniorName)}.</div>`;
+    return `<div id="assist-preview-empty-${sessionId}" class="assistance-preview" style="display:flex;align-items:center;justify-content:center;padding:20px;color:var(--text3);font-size:13px;text-align:center;">Waiting for a live Sclshi preview from ${esc(seniorName)}.</div>`;
   }
   return `<iframe id="assist-preview-frame-${sessionId}" class="assistance-preview assistance-preview-frame" style="background:#0f1117;" sandbox="allow-same-origin" referrerpolicy="no-referrer" srcdoc="${esc(buildAssistancePreviewDoc(preview))}"></iframe>`;
 }
@@ -2851,7 +2864,7 @@ function syncAssistanceOverlay(){
   controlCard.style.display='none';
   if(active){
     document.getElementById('assistance-banner-text').textContent='Guided support active';
-    document.getElementById('assistance-banner-subtext').textContent='Voice guidance may play while you use sclshi.';
+    document.getElementById('assistance-banner-subtext').textContent='Voice guidance may play while you use Sclshi.';
   }
 }
 function getTransactionTypeLabel(tx){
@@ -7073,12 +7086,9 @@ function showNotif(containerId,msg,type='success'){
   if(params.get('cancelled')) history.replaceState({},'','/');
   if(authToken){
     try{
-      currentUser=await api('GET','/me');
-      enterApp();
+      await enterApp();
     }catch(e){
-      if(e.message==='Invalid token'||e.message==='No token'){
-        localStorage.removeItem('ew_token');
-      }
+      clearStoredAuth();
       document.getElementById('auth-screen').style.display='flex';
     }
   } else {

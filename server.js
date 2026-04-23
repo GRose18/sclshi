@@ -83,6 +83,10 @@ app.use((req,res,next)=>{
 app.use(express.json({ limit: '30mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 let db;
 const blackjackGames = new Map();
 const minesGames = new Map();
@@ -426,6 +430,9 @@ async function initDB() {
 
   const finishBootstrap = async ()=>{
     await db.run("ALTER TABLE posts ADD COLUMN image TEXT DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 1").catch(()=>{});
+    await db.run("ALTER TABLE users ADD COLUMN on_email_list INTEGER DEFAULT 0").catch(()=>{});
+    await db.run("ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''").catch(()=>{});
     await db.run("ALTER TABLE users ADD COLUMN popup_access INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE users ADD COLUMN assistance_access INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE users ADD COLUMN created_at INTEGER DEFAULT 0").catch(()=>{});
