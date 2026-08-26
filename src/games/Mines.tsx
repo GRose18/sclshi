@@ -1,0 +1,15 @@
+import { useState } from 'react'
+import { Bomb, Gem } from 'lucide-react'
+import BetController from '../components/BetController'
+import GameShell from '../components/GameShell'
+import { useCasinoWallet } from '../wallet'
+
+export default function Mines({onBack}:{onBack:()=>void}){
+ const {debit,credit,balance}=useCasinoWallet(); const [amount,setAmount]=useState(10);const [mineCount,setMineCount]=useState(3);const [mines,setMines]=useState<Set<number>>(new Set());const [revealed,setRevealed]=useState<Set<number>>(new Set());const [status,setStatus]=useState<'idle'|'active'>('idle');const [lost,setLost]=useState(false)
+ const multiplier=+(Math.pow(25/(25-mineCount),revealed.size)*.99).toFixed(2)
+ const start=()=>{if(!debit(amount))return;const next=new Set<number>();while(next.size<mineCount)next.add(Math.floor(Math.random()*25));setMines(next);setRevealed(new Set());setLost(false);setStatus('active')}
+ const click=(i:number)=>{if(status!=='active'||revealed.has(i))return;if(mines.has(i)){setLost(true);setRevealed(new Set(Array.from({length:25},(_,n)=>n)));setStatus('idle')}else setRevealed(v=>new Set(v).add(i))}
+ const cashout=()=>{credit(amount*multiplier);setStatus('idle')}
+ const panel=<BetController amount={amount} setAmount={setAmount} status={status} onAction={status==='active'?cashout:start} canCashOut={status==='active'} disabled={amount>balance} potential={amount*multiplier}><label className="block"><span className="mb-2 flex justify-between text-xs font-semibold text-slate-400"><span>Mines</span><span>{mineCount}</span></span><input disabled={status==='active'} type="range" min="1" max="24" value={mineCount} onChange={e=>setMineCount(Number(e.target.value))} className="w-full accent-lime"/></label><div className="flex justify-between rounded-lg bg-[#0c1623] p-3 text-xs"><span className="text-slate-400">Diamonds</span><b>{25-mineCount}</b></div></BetController>
+ return <GameShell title="Mines" onBack={onBack} panel={panel}><div className="w-full max-w-[590px]"><div className="mb-5 text-center"><div className={`font-display text-4xl font-extrabold ${lost?'text-red-400':'text-lime'}`}>{lost?'BOOM':status==='active'?`${multiplier.toFixed(2)}×`:'Choose your stake'}</div><div className="mt-1 text-xs text-slate-500">{status==='active'?'Find gems, then cash out before the mine.':'Configure mines and start a round.'}</div></div><div className="grid grid-cols-5 gap-2 sm:gap-3">{Array.from({length:25},(_,i)=>{const show=revealed.has(i),mine=mines.has(i);return <button aria-label={`Tile ${i+1}`} key={i} onClick={()=>click(i)} className={`tile-shadow aspect-square rounded-lg transition active:translate-y-1 active:shadow-none ${show?(mine?'bg-red-500':'bg-lime'):'bg-[#2a3b4e] hover:bg-[#344a60]'}`}>{show&&(mine?<Bomb className="mx-auto text-white" size={30}/>:<Gem className="mx-auto text-slate-950" fill="currentColor" size={30}/>)}</button>})}</div></div></GameShell>
+}
