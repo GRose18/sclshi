@@ -107,12 +107,17 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.get('/casino', (req, res) => {
+app.get(/^\/casino(?:\/.*)?$/, (req, res) => {
   const builtCasino = path.join(__dirname, 'dist', 'casino.html');
   if (!fs.existsSync(builtCasino)) {
     return res.status(503).send('Casino client is not built yet. Run npm run build first.');
   }
   res.sendFile(builtCasino);
+});
+
+const APP_TAB_ROUTES = ['/feed', '/portfolio', '/leaderboard', '/messages', '/suggestions', '/exchange', '/assistance', '/popup', '/admin'];
+app.get(APP_TAB_ROUTES, (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 let db;

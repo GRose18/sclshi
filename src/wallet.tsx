@@ -3,10 +3,11 @@ import { createContext, ReactNode, useContext, useMemo, useState } from 'react'
 type Wallet = { balance:number; debit:(amount:number)=>boolean; credit:(amount:number)=>void; reset:()=>void }
 const WalletContext = createContext<Wallet | null>(null)
 const STARTING_BALANCE = 10_000
+const WALLET_KEY = 'sclshi-casino-demo-balance'
 
 export function CasinoWalletProvider({children}:{children:ReactNode}){
-  const [balance,setBalance] = useState(()=>Number(localStorage.getItem('obsidian-demo-balance')) || STARTING_BALANCE)
-  const persist = (next:number) => { const safe=Math.max(0,Math.round(next*100)/100); localStorage.setItem('obsidian-demo-balance',String(safe)); return safe }
+  const [balance,setBalance] = useState(()=>Number(localStorage.getItem(WALLET_KEY) || localStorage.getItem('obsidian-demo-balance')) || STARTING_BALANCE)
+  const persist = (next:number) => { const safe=Math.max(0,Math.round(next*100)/100); localStorage.setItem(WALLET_KEY,String(safe)); return safe }
   const value=useMemo<Wallet>(()=>({
     balance,
     debit:(amount)=>{ if(!Number.isFinite(amount)||amount<=0||amount>balance) return false; setBalance(v=>persist(v-amount)); return true },

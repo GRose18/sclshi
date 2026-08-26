@@ -2056,6 +2056,7 @@ async function enterApp(){
   if(canUseAssistanceTab()) renderAssistanceTab();
   document.addEventListener('click',handleGlobalClick,true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeBetModal();closeBuyModal();closeProfileModal();closeSpinModal();}});
+  restoreTabFromPath();
 }
 function updateTopbar(){
   if(!currentUser)return;
@@ -2352,13 +2353,45 @@ async function renderExchangeTab(){
     </div>`;
 }
 
-function switchTab(tab){
+const TAB_ROUTES={
+  markets:'/',
+  feed:'/feed',
+  portfolio:'/portfolio',
+  leaderboard:'/leaderboard',
+  messages:'/messages',
+  suggestions:'/suggestions',
+  exchange:'/exchange',
+  assistance:'/assistance',
+  popup:'/popup',
+  admin:'/admin',
+};
+const ROUTE_TABS=Object.fromEntries(Object.entries(TAB_ROUTES).map(([tab,path])=>[path,tab]));
+
+function tabAllowed(tab){
+  if(tab==='assistance') return canUseAssistanceTab();
+  if(tab==='exchange'||tab==='admin') return currentUser?.role==='admin';
+  if(tab==='popup') return !!(currentUser&&(currentUser.id==='GROSE'||currentUser.popup_access));
+  return Object.prototype.hasOwnProperty.call(TAB_ROUTES,tab);
+}
+
+function restoreTabFromPath(){
+  const tab=ROUTE_TABS[window.location.pathname]||'markets';
+  switchTab(tabAllowed(tab)?tab:'markets',{updateHistory:false,replace:true});
+}
+
+function switchTab(tab,{updateHistory=true,replace=false}={}){
   if(tab==='assistance'&&!canUseAssistanceTab()) return;
   if(tab==='casino'&&!CASINO_ENABLED) return;
+  const content=document.getElementById('tab-'+tab);
+  const nav=document.querySelector(`.nav-tab[data-tab="${tab}"]`);
+  if(!content||!nav) return;
   document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(el=>el.classList.remove('active'));
-  document.getElementById('tab-'+tab).classList.add('active');
-  document.querySelector(`.nav-tab[data-tab="${tab}"]`).classList.add('active');
+  content.classList.add('active');
+  nav.classList.add('active');
+  if(updateHistory&&TAB_ROUTES[tab]&&window.location.pathname!==TAB_ROUTES[tab]){
+    history[replace?'replaceState':'pushState']({tab},'',TAB_ROUTES[tab]);
+  }
   if(tab==='markets')renderMarkets();
   if(tab==='feed')renderFeed();
   if(tab==='portfolio')renderPortfolio();
@@ -2371,6 +2404,10 @@ function switchTab(tab){
   if(tab==='popup')renderPopupTab();
   if(tab==='casino'){initCasino();}
 }
+
+window.addEventListener('popstate',()=>{
+  if(currentUser) restoreTabFromPath();
+});
 
 // ── ASSISTANCE ──
 function bindAssistanceRuntime(){
