@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">The Emery/Weiner School mark</title>
+  <circle cx="80" cy="80" r="74" fill="#002D62" stroke="#C0C0C0" stroke-width="8"/>
+  <path d="M42 43h76v17H62v13h47v16H62v13h57v17H42Z" fill="#fff"/>
+  <path d="m52 42 13 77h18L94 70l11 49h18l13-77h-17l-6 43-10-43H85L75 85l-6-43Z" fill="#C0C0C0" opacity=".92"/>
+</svg>

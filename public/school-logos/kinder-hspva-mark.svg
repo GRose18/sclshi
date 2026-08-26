@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">Kinder HSPVA mark</title>
+  <rect x="7" y="7" width="146" height="146" rx="34" fill="#000" stroke="#008080" stroke-width="8"/>
+  <path d="M38 43v74M38 80h35M73 43v74M91 43h18c21 0 21 36 0 36H91v38" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="square" stroke-linejoin="round"/>
+  <path d="M30 130h100" stroke="#008080" stroke-width="9"/>
+</svg>

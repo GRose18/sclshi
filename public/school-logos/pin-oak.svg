@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">Pin Oak Middle School</title>
+  <circle cx="80" cy="80" r="74" fill="#000080" stroke="#808080" stroke-width="8"/>
+  <path d="M80 30 96 64l37 5-27 26 7 36-33-17-33 17 7-36-27-26 37-5Z" fill="#fff" opacity=".95"/>
+  <text x="80" y="93" text-anchor="middle" font-family="Arial,sans-serif" font-size="32" font-weight="800" fill="#000080">PO</text>
+</svg>

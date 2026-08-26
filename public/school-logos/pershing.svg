@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">Pershing Middle School Pandas</title>
+  <circle cx="80" cy="80" r="74" fill="#800020" stroke="#000" stroke-width="8"/>
+  <circle cx="54" cy="51" r="20" fill="#000"/><circle cx="106" cy="51" r="20" fill="#000"/>
+  <circle cx="80" cy="84" r="48" fill="#fff"/>
+  <ellipse cx="62" cy="77" rx="13" ry="17" fill="#000" transform="rotate(20 62 77)"/>
+  <ellipse cx="98" cy="77" rx="13" ry="17" fill="#000" transform="rotate(-20 98 77)"/>
+  <circle cx="64" cy="75" r="4" fill="#fff"/><circle cx="96" cy="75" r="4" fill="#fff"/>
+  <ellipse cx="80" cy="98" rx="10" ry="7" fill="#000"/>
+</svg>

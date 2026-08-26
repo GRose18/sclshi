@@ -72,6 +72,25 @@ const EXCHANGE_INTEREST_PERCENT = 5;
 const EXCHANGE_MIN_TERM_DAYS = 1;
 const EXCHANGE_MAX_TERM_DAYS = 30;
 const EXCHANGE_MIN_ACCOUNT_AGE_MS = 1000 * 60 * 60 * 24 * 10;
+const ALLOWED_SCHOOLS = [
+  'The Emery/Weiner School',
+  'Episcopal High School - Houston/Bellaire',
+  "St. John's School",
+  'St. Agnes Academy',
+  'Strake Jesuit College Preparatory',
+  'Bellaire High School',
+  'Pin Oak Middle School',
+  'Pershing Middle School',
+  'Lamar High School',
+  'Kinder High School for the Performing and Visual Arts',
+  'Westbury High School',
+];
+
+function normalizeUsPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  const national = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+  return national.length === 10 ? `+1${national}` : null;
+}
 
 app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use(cors());
@@ -437,7 +456,9 @@ async function initDB() {
     await db.run("ALTER TABLE users ADD COLUMN assistance_access INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE users ADD COLUMN created_at INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE users ADD COLUMN school TEXT DEFAULT 'SCLSHI'").catch(()=>{});
+    await db.run("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL").catch(()=>{});
     await db.run("ALTER TABLE pending_registrations ADD COLUMN school TEXT DEFAULT 'SCLSHI'").catch(()=>{});
+    await db.run("ALTER TABLE pending_registrations ADD COLUMN phone TEXT DEFAULT NULL").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN rave_enabled INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN alert_enabled INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN alert_text TEXT DEFAULT ''").catch(()=>{});
@@ -477,6 +498,7 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_exchange_loans_borrower_status_due_at ON exchange_loans(borrower_id, status, due_at ASC);
       CREATE INDEX IF NOT EXISTS idx_exchange_loans_lender_status_due_at ON exchange_loans(lender_id, status, due_at ASC);
       CREATE INDEX IF NOT EXISTS idx_exchange_repayments_loan_created_at ON exchange_repayments(loan_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique ON users(phone) WHERE phone IS NOT NULL;
     `);
     fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
     await ensureProtectedSettings();
@@ -582,6 +604,31 @@ async function sendViaAppsScript(type, payload) {
     const data = await res.json();
     return data.sent || 0;
   } catch(e) { console.error('[Email] Error:', e.message); return 0; }
+}
+
+async function sendVerificationSms(phone, code) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_PHONE_NUMBER;
+  if (!accountSid || !authToken || !from) return false;
+  const body = new URLSearchParams({
+    To: phone,
+    From: from,
+    Body: `Your Sclshi verification code is ${code}. It expires in 10 minutes.`,
+  });
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(()=>'');
+    throw new Error(`SMS delivery failed (${response.status})${detail ? `: ${detail.slice(0,160)}` : ''}`);
+  }
+  return true;
 }
 
 function generateId(p='') { return p+Date.now()+Math.random().toString(36).slice(2,6); }
@@ -1600,7 +1647,7 @@ async function getAssistanceStateForUser(userId){
   ]);
   return { contacts, incomingRequests, helperFor, currentSessions, recentSessions };
 }
-// ── EMAIL VERIFICATION ──
+// ── PHONE VERIFICATION ──
 app.post('/api/auth/verify-code', async(req,res)=>{
   try{
     const {pendingId,code}=req.body;
@@ -1612,16 +1659,18 @@ app.post('/api/auth/verify-code', async(req,res)=>{
       return res.status(400).json({error:'Code expired. Please register again.'});
     }
     if(pending.code!==code.trim()) return res.status(400).json({error:'Invalid code. Try again.'});
-    if(await db.get('SELECT id FROM users WHERE LOWER(email)=?',[pending.email]))
-      return res.status(409).json({error:'An account with that email already exists'});
+    if(await db.get('SELECT id FROM users WHERE phone=?',[pending.phone]))
+      return res.status(409).json({error:'An account with that phone number already exists'});
+    if(await db.get('SELECT id FROM users WHERE LOWER(name)=LOWER(?)',[pending.name]))
+      return res.status(409).json({error:'That username is already taken'});
     const uid=generateId('U');
-    await db.run('INSERT INTO users (id,name,email,password,role,credits,grade,school,email_verified,on_email_list,created_at) VALUES (?,?,?,?,?,?,?,?,1,0,?)',
-      [uid,pending.name,pending.email,pending.password,'student',200,pending.grade,pending.school || 'SCLSHI',Date.now()]);
+    await db.run('INSERT INTO users (id,name,email,phone,password,role,credits,grade,school,email_verified,on_email_list,created_at) VALUES (?,?,?,?,?,?,?,?,?,1,0,?)',
+      [uid,pending.name,null,pending.phone,pending.password,'student',200,'',pending.school,Date.now()]);
     await db.run('DELETE FROM pending_registrations WHERE id=?',[pendingId]);
     await recordTx(uid,200,'signup_bonus',null,'Welcome bonus');
-    appendToSheet(pending.name,pending.email,pending.grade,pending.school);
+    appendToSheet(pending.name,pending.phone,'',pending.school);
     const token=jwt.sign({id:uid,role:'student'},JWT_SECRET,{expiresIn:'30d'});
-    const user=await db.get('SELECT id,name,email,role,credits,grade,school,on_email_list FROM users WHERE id=?',[uid]);
+    const user=await db.get('SELECT id,name,email,phone,role,credits,grade,school,on_email_list FROM users WHERE id=?',[uid]);
     res.json({token,user,message:'Account created!'});
   }catch(e){res.status(500).json({error:e.message});}
 });
@@ -1633,8 +1682,9 @@ app.post('/api/auth/resend-code', async(req,res)=>{
     if(!pending) return res.status(400).json({error:'Registration not found. Please register again.'});
     const code=Math.floor(100000+Math.random()*900000).toString();
     await db.run('UPDATE pending_registrations SET code=?,expires_at=? WHERE id=?',[code,Date.now()+600000,pendingId]);
-    await sendViaAppsScript('verify_code',{email:pending.email,name:pending.name,code,siteUrl:CLIENT_URL});
-    res.json({message:'New code sent!'});
+    const sent=await sendVerificationSms(pending.phone,code);
+    if(!sent && process.env.NODE_ENV==='production') return res.status(503).json({error:'SMS verification is not configured'});
+    res.json({message:sent?'New code sent!':'Development code generated.',...(process.env.NODE_ENV!=='production'&&!sent?{devCode:code}:{})});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -1985,9 +2035,10 @@ app.post('/api/auth/login', async(req,res)=>{
     const {email,password,identifier}=req.body;
     const lookup=(identifier||email||'').trim();
     if(!lookup||!password) return res.status(400).json({error:'Missing fields'});
-    const user=await db.get('SELECT * FROM users WHERE LOWER(email)=LOWER(?) OR LOWER(name)=LOWER(?) OR LOWER(id)=LOWER(?)',[lookup,lookup,lookup]);
-    if(!user) return res.status(401).json({error:'Invalid email/username or password'});
-    if(!await bcrypt.compare(password,user.password)) return res.status(401).json({error:'Invalid email/username or password'});
+    const normalizedPhone=normalizeUsPhone(lookup);
+    const user=await db.get('SELECT * FROM users WHERE LOWER(email)=LOWER(?) OR LOWER(name)=LOWER(?) OR LOWER(id)=LOWER(?) OR phone=?',[lookup,lookup,lookup,normalizedPhone]);
+    if(!user) return res.status(401).json({error:'Invalid username, phone number, or password'});
+    if(!await bcrypt.compare(password,user.password)) return res.status(401).json({error:'Invalid username, phone number, or password'});
     const token=jwt.sign({id:user.id,role:user.role},JWT_SECRET,{expiresIn:'30d'});
     const {password:_,...safe}=user;
     res.json({token,user:safe});
@@ -1996,20 +2047,26 @@ app.post('/api/auth/login', async(req,res)=>{
 
 app.post('/api/auth/register', async(req,res)=>{
   try{
-    const {name,email,password,grade,school}=req.body;
-    if(!name||!email||!password||!school) return res.status(400).json({error:'Missing fields'});
-    const trimmedEmail=email.trim().toLowerCase();
-    if(await db.get('SELECT id FROM users WHERE LOWER(email)=?',[trimmedEmail]))
-      return res.status(409).json({error:'An account with that email already exists'});
+    const {username,phone,password,school}=req.body;
+    const cleanUsername=String(username||'').trim();
+    const normalizedPhone=normalizeUsPhone(phone);
+    if(!cleanUsername||!normalizedPhone||!password||!school) return res.status(400).json({error:'Enter a username, valid US phone number, school, and password'});
+    if(!/^[a-zA-Z0-9_.-]{3,24}$/.test(cleanUsername)) return res.status(400).json({error:'Username must be 3–24 characters and use only letters, numbers, dots, dashes, or underscores'});
+    if(!ALLOWED_SCHOOLS.includes(school)) return res.status(400).json({error:'Choose a school from the list'});
+    if(await db.get('SELECT id FROM users WHERE LOWER(name)=LOWER(?)',[cleanUsername]))
+      return res.status(409).json({error:'That username is already taken'});
+    if(await db.get('SELECT id FROM users WHERE phone=?',[normalizedPhone]))
+      return res.status(409).json({error:'An account with that phone number already exists'});
     if(password.length<6) return res.status(400).json({error:'Password must be at least 6 characters'});
     const hash=await bcrypt.hash(password,10);
     const code=Math.floor(100000+Math.random()*900000).toString();
     const id=generateId('pending');
-    await db.run('DELETE FROM pending_registrations WHERE email=?',[trimmedEmail]);
-    await db.run('INSERT INTO pending_registrations (id,name,email,password,grade,school,code,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-      [id,name.trim(),trimmedEmail,hash,grade||'',school.trim(),code,Date.now()+600000,Date.now()]);
-    await sendViaAppsScript('verify_code',{email:trimmedEmail,name:name.trim(),code,siteUrl:CLIENT_URL});
-    res.json({message:'Verification code sent to your email.',pendingId:id});
+    await db.run('DELETE FROM pending_registrations WHERE phone=?',[normalizedPhone]);
+    await db.run('INSERT INTO pending_registrations (id,name,email,phone,password,grade,school,code,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [id,cleanUsername,`${normalizedPhone.slice(1)}@phone.local`,normalizedPhone,hash,'',school,code,Date.now()+600000,Date.now()]);
+    const sent=await sendVerificationSms(normalizedPhone,code);
+    if(!sent && process.env.NODE_ENV==='production') return res.status(503).json({error:'SMS verification is not configured'});
+    res.json({message:sent?'Verification code sent by text.':'Development code generated.',pendingId:id,...(process.env.NODE_ENV!=='production'&&!sent?{devCode:code}:{})});
   }catch(e){res.status(500).json({error:e.message});}
 });
 

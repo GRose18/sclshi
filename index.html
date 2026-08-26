@@ -22,16 +22,24 @@
     --radius:10px;--radius-lg:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+  body{font-family:'Inter',sans-serif;background:
+    radial-gradient(circle at 85% 0,rgba(var(--school-primary-rgb,77,163,255),0.18),transparent 34%),
+    var(--bg);color:var(--text);min-height:100vh;font-size:14px;transition:background-color .3s,color .3s}
 
   /* AUTH */
   #auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center}
-  .auth-card{background:var(--bg2);border:1px solid var(--border-hi);border-radius:18px;padding:44px 40px;width:400px;box-shadow:var(--shadow-lg)}
+  .auth-card{background:linear-gradient(160deg,rgba(var(--school-primary-rgb,77,163,255),0.12),rgba(var(--school-tertiary-rgb,255,255,255),0.035) 48%,transparent 72%),var(--bg2);border:1px solid rgba(var(--school-secondary-rgb,255,255,255),0.32);border-radius:18px;padding:44px 40px;width:400px;box-shadow:var(--shadow-lg)}
   .auth-logo{text-align:center;margin-bottom:32px}
   .auth-logo .brand{font-size:30px;font-weight:700;letter-spacing:-0.03em}
   .auth-logo .brand span{color:var(--accent)}
   .auth-logo .tagline{font-size:12px;color:var(--text3);letter-spacing:0.1em;text-transform:uppercase;margin-top:5px}
   .auth-logo .star{font-size:26px;display:block;margin-bottom:8px;opacity:0.9}
+  .school-collab{display:inline-flex;align-items:center;gap:13px;min-width:0}
+  .school-collab-x{display:none;font-size:22px;font-weight:300;color:var(--text2)}
+  .school-collab-logo{display:none;width:64px;height:64px;object-fit:contain;border-radius:14px;background:rgba(255,255,255,.98);padding:5px;box-shadow:0 5px 18px rgba(0,0,0,.28),0 0 0 1px rgba(255,255,255,.2)}
+  .auth-logo .school-collab{justify-content:center;margin-bottom:5px}
+  .auth-logo .school-collab-logo{width:82px;height:82px;border-radius:18px;padding:6px}
+  .topbar .school-collab-logo{width:54px;height:54px;border-radius:12px}
   .form-group{margin-bottom:16px}
   .form-group label{display:block;font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--text3);margin-bottom:7px}
   .form-group input,.form-group select{width:100%;padding:11px 14px;background:var(--bg3);border:1px solid var(--border-hi);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:14px;color:var(--text);outline:none;transition:border-color 0.2s}
@@ -71,7 +79,7 @@
   .access-error{font-size:11px;color:#ff4560;letter-spacing:0.05em}
   /* APP SHELL */
   #app{display:none;min-height:100vh}
-  .topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 28px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .topbar{background:linear-gradient(90deg,rgba(var(--school-primary-rgb,0,0,0),0.24),rgba(var(--school-secondary-rgb,255,255,255),0.07),rgba(var(--school-tertiary-rgb,255,255,255),0.035)),var(--bg2);border-bottom:1px solid rgba(var(--school-secondary-rgb,255,255,255),0.18);padding:0 28px;height:72px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
   .topbar-brand{font-size:19px;font-weight:700;letter-spacing:-0.02em}
   .topbar-brand span{color:var(--accent)}
   .topbar-right{display:flex;align-items:center;gap:12px}
@@ -174,6 +182,8 @@
   .leaderboard-row{display:flex;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);gap:14px;cursor:pointer}
   .leaderboard-row:hover{background:var(--bg3);border-radius:var(--radius);padding-left:8px;padding-right:8px}
   .leaderboard-row:last-child{border-bottom:none}
+  .lb-school{display:inline-flex;align-items:center;gap:6px;margin-top:4px;padding:3px 8px;border-radius:999px;background:var(--bg4);border:1px solid var(--border-hi);font-size:10px;font-weight:600;color:var(--text2);line-height:1.25}
+  .lb-school-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 0 2px rgba(255,255,255,.08)}
   .lb-rank{font-size:15px;font-weight:700;color:var(--text3);width:28px;text-align:center}
   .lb-avatar{width:34px;height:34px;border-radius:50%;background:var(--bg4);border:1px solid var(--border-hi);color:var(--text2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
   .lb-name{flex:1;font-weight:500;font-size:14px;color:var(--text)}
@@ -382,11 +392,11 @@
   <div class="auth-card">
     <div class="auth-logo">
       <span class="star">✡</span>
-      <div class="brand">Scl<span>shi</span></div>
+      <div class="school-collab"><div class="brand">Scl<span>shi</span></div><span class="school-collab-x">×</span><img class="school-collab-logo" alt=""></div>
       <div class="tagline">Prediction Markets</div>
     </div>
     <div id="auth-error" class="error-msg" style="display:none;"></div>
-    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com"></div>
+    <div class="form-group"><label>Username or phone number</label><input type="text" id="login-email" placeholder="username or (713) 555-0123"></div>
     <div class="form-group"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn-primary" onclick="doLogin()">Sign In</button>
     <div class="auth-toggle" style="margin-top:12px;"><a onclick="showForgotPassword()" style="color:var(--text3);font-size:12px;">Forgot password?</a></div>
@@ -398,8 +408,8 @@
 <!-- VERIFY -->
 <div id="verify-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
   <div class="auth-card">
-    <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center;color:var(--text);">Check your email</h2>
-    <p style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">We sent a 6-digit code to your email. Enter it below to activate your account.</p>
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center;color:var(--text);">Check your phone</h2>
+    <p id="verify-message" style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">We texted you a 6-digit code. Enter it below to activate your account.</p>
     <div id="verify-error" class="error-msg" style="display:none;"></div>
     <input type="hidden" id="verify-pending-id">
     <div class="form-group"><label>Verification Code</label><input type="text" id="verify-code-input" placeholder="123456" maxlength="6" style="font-size:24px;font-weight:700;letter-spacing:0.2em;text-align:center;" onkeydown="if(event.key==='Enter')doVerifyCode()"></div>
@@ -440,10 +450,23 @@
     <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center;color:var(--text);">Create Account</h2>
     <p style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">Sign up to start trading on Sclshi.</p>
     <div id="reg-error" class="error-msg" style="display:none;"></div>
-    <div class="form-group"><label>Full Name</label><input type="text" id="reg-name" placeholder="Your full name"></div>
-    <div class="form-group"><label>Email</label><input type="email" id="reg-email" placeholder="you@example.com"></div>
-    <div class="form-group"><label>Grade</label>
-      <select id="reg-grade"><option>6th Grade</option><option>7th Grade</option><option>8th Grade</option><option>9th Grade</option><option>10th Grade</option><option>11th Grade</option><option>12th Grade</option></select>
+    <div class="form-group"><label>Username</label><input type="text" id="reg-username" placeholder="Choose a username" maxlength="24" autocomplete="username"></div>
+    <div class="form-group"><label>Phone Number</label><input type="tel" id="reg-phone" placeholder="(713) 555-0123" autocomplete="tel"></div>
+    <div class="form-group"><label>School</label>
+      <select id="reg-school" onchange="applySchoolTheme(this.value)">
+        <option value="" selected disabled>Choose your school</option>
+        <option>The Emery/Weiner School</option>
+        <option>Episcopal High School - Houston/Bellaire</option>
+        <option>St. John's School</option>
+        <option>St. Agnes Academy</option>
+        <option>Strake Jesuit College Preparatory</option>
+        <option>Bellaire High School</option>
+        <option>Pin Oak Middle School</option>
+        <option>Pershing Middle School</option>
+        <option>Lamar High School</option>
+        <option>Kinder High School for the Performing and Visual Arts</option>
+        <option>Westbury High School</option>
+      </select>
     </div>
     <div class="form-group"><label>Password</label><input type="password" id="reg-pass" placeholder="At least 6 characters"></div>
     <button class="btn-primary" id="reg-btn" onclick="doRegister()">Create Account</button>
@@ -479,7 +502,7 @@
 <div id="app">
   <div class="topbar">
     <div style="display:flex;align-items:center;gap:20px;">
-      <div class="topbar-brand">Scl<span>shi</span></div>
+      <div class="school-collab"><div class="topbar-brand">Scl<span>shi</span></div><span class="school-collab-x">×</span><img class="school-collab-logo" alt=""></div>
       <span style="font-size:11px;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;">Markets</span>
     </div>
     <div class="topbar-right">
@@ -511,7 +534,6 @@
     <div class="nav-tab" data-tab="feed" onclick="switchTab('feed')">sclgram</div>
     <div class="nav-tab" data-tab="portfolio" onclick="switchTab('portfolio')">My Bets</div>
     <div class="nav-tab" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</div>
-    <div class="nav-tab" data-tab="store" onclick="switchTab('store')">Redeem</div>
     <div class="nav-tab" data-tab="messages" onclick="switchTab('messages')">Messages <span id="msg-badge" style="display:none;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></div>
     <div class="nav-tab" data-tab="suggestions" onclick="switchTab('suggestions')">Suggestions</div>
     <div class="nav-tab admin-only" data-tab="exchange" onclick="switchTab('exchange')" style="display:none;">Exchange</div>
@@ -1116,15 +1138,6 @@
       <div class="panel"><div id="leaderboard-list"><div class="loading">Loading…</div></div></div>
     </div>
 
-    <!-- STORE -->
-    <div id="tab-store" class="tab-content">
-      <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:4px;">Redeem Credits</h2>
-      <p style="font-size:12px;color:var(--text3);margin-bottom:20px;">Spend your winnings on real rewards</p>
-      <div id="store-notification"></div>
-      <div class="store-grid" id="store-grid"></div>
-      <div class="panel" style="margin-top:18px;"><div class="panel-title">Redemption History</div><div id="redemption-history"></div></div>
-    </div>
-
     <!-- MESSAGES -->
     <div id="tab-messages" class="tab-content">
       <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:4px;">Messages</h2>
@@ -1345,6 +1358,18 @@
     <div id="tab-admin" class="tab-content">
       <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:18px;">Admin Dashboard</h2>
       <div class="stat-cards" id="admin-stats"></div>
+      <div class="panel">
+        <div class="panel-title">Theme Preview Lab</div>
+        <p style="font-size:12px;color:var(--text3);margin-bottom:14px;">Try any school theme in this browser. Previewing does not change your account or another user's saved school.</p>
+        <div class="admin-form-row" style="align-items:end;">
+          <div class="form-group" style="flex:1;margin-bottom:0;">
+            <label>Preview school</label>
+            <select id="admin-theme-preview" onchange="previewAdminTheme(this.value)"></select>
+          </div>
+          <button class="btn-admin" onclick="resetAdminThemePreview()">Reset to My School</button>
+        </div>
+        <div id="admin-theme-preview-meta" style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:12px;color:var(--text2);"></div>
+      </div>
       <div class="admin-grid">
         <div class="panel">
           <div class="panel-title">Create Market</div>
@@ -1561,7 +1586,98 @@
 </div>
 
 <script>
-const API = window.location.hostname==='localhost'?'http://localhost:3000/api':'/api';
+const API = '/api';
+const DEFAULT_THEME={primary:'#0A0A0F',secondary:'#4DA3FF'};
+const SCHOOL_THEMES={
+  'The Emery/Weiner School':{primary:'#002D62',secondary:'#C0C0C0'},
+  'Episcopal High School - Houston/Bellaire':{primary:'#002855',secondary:'#FFFFFF'},
+  "St. John's School":{primary:'#BA0C2F',secondary:'#FFFFFF'},
+  'St. Agnes Academy':{primary:'#000000',secondary:'#D4AF37',tertiary:'#FFFFFF'},
+  'Strake Jesuit College Preparatory':{primary:'#355E3B',secondary:'#BA0C2F',tertiary:'#FFFFFF'},
+  'Bellaire High School':{primary:'#003366',secondary:'#E0115F'},
+  'Pin Oak Middle School':{primary:'#000080',secondary:'#808080'},
+  'Pershing Middle School':{primary:'#800020',secondary:'#000000'},
+  'Lamar High School':{primary:'#002147',secondary:'#DAA520'},
+  'Kinder High School for the Performing and Visual Arts':{primary:'#000000',secondary:'#008080'},
+  'Westbury High School':{primary:'#0000FF',secondary:'#800000'},
+};
+const SCHOOL_LOGOS={
+  'The Emery/Weiner School':'/school-logos/emery-weiner-official.png',
+  'Episcopal High School - Houston/Bellaire':'/school-logos/episcopal.webp',
+  "St. John's School":'/school-logos/st-johns.jpg',
+  'St. Agnes Academy':'/school-logos/st-agnes-mark.gif',
+  'Strake Jesuit College Preparatory':'/school-logos/strake-jesuit-mark.jpg',
+  'Bellaire High School':'/school-logos/bellaire.png',
+  'Pin Oak Middle School':'/school-logos/pin-oak.svg',
+  'Pershing Middle School':'/school-logos/pershing.svg',
+  'Lamar High School':'/school-logos/lamar.webp',
+  'Kinder High School for the Performing and Visual Arts':'/school-logos/kinder-hspva-mark.svg',
+  'Westbury High School':'/school-logos/westbury.gif',
+};
+let adminThemePreviewSchool='';
+function hexRgb(hex){
+  const value=hex.replace('#','');
+  return [parseInt(value.slice(0,2),16),parseInt(value.slice(2,4),16),parseInt(value.slice(4,6),16)];
+}
+function mixHex(hex,base,amount){
+  const a=hexRgb(hex),b=hexRgb(base);
+  return '#'+a.map((v,i)=>Math.round(v*amount+b[i]*(1-amount)).toString(16).padStart(2,'0')).join('');
+}
+function applySchoolTheme(school){
+  const theme=SCHOOL_THEMES[school]||DEFAULT_THEME;
+  const root=document.documentElement;
+  const tertiary=theme.tertiary||theme.secondary;
+  const [pr,pg,pb]=hexRgb(theme.primary),[sr,sg,sb]=hexRgb(theme.secondary),[tr,tg,tb]=hexRgb(tertiary);
+  const secondary=theme.secondary.toUpperCase(),primary=theme.primary.toUpperCase();
+  const accent=primary==='#000000' ? theme.secondary
+    : ['#FFFFFF','#C0C0C0','#808080','#000000'].includes(secondary) ? theme.primary
+    : theme.secondary;
+  const [ar,ag,ab]=hexRgb(accent);
+  root.style.setProperty('--school-primary',theme.primary);
+  root.style.setProperty('--school-secondary',theme.secondary);
+  root.style.setProperty('--school-tertiary',tertiary);
+  root.style.setProperty('--bg',mixHex(theme.primary,'#060609',0.20));
+  root.style.setProperty('--bg2',mixHex(theme.primary,'#101017',0.16));
+  root.style.setProperty('--bg3',mixHex(theme.primary,'#16161f',0.14));
+  root.style.setProperty('--bg4',mixHex(theme.primary,'#1e1e2a',0.12));
+  root.style.setProperty('--accent',accent);
+  root.style.setProperty('--accent-bg',`rgba(${ar},${ag},${ab},0.14)`);
+  root.style.setProperty('--accent-dim',`rgba(${ar},${ag},${ab},0.32)`);
+  root.style.setProperty('--gold',theme.secondary);
+  root.style.setProperty('--school-primary-rgb',`${pr},${pg},${pb}`);
+  root.style.setProperty('--school-secondary-rgb',`${sr},${sg},${sb}`);
+  root.style.setProperty('--school-tertiary-rgb',`${tr},${tg},${tb}`);
+  document.body.dataset.schoolTheme=school||'default';
+  const logo=SCHOOL_LOGOS[school];
+  document.querySelectorAll('.school-collab-logo').forEach(img=>{
+    img.style.display=logo?'block':'none';
+    if(logo){img.src=logo;img.alt=`${school} logo`;}
+    else{img.removeAttribute('src');img.alt='';}
+  });
+  document.querySelectorAll('.school-collab-x').forEach(mark=>mark.style.display=logo?'inline':'none');
+}
+function renderAdminThemePreviewMeta(school){
+  const meta=document.getElementById('admin-theme-preview-meta');
+  if(!meta)return;
+  const theme=SCHOOL_THEMES[school]||DEFAULT_THEME;
+  const colors=[theme.primary,theme.secondary,theme.tertiary].filter(Boolean);
+  meta.innerHTML=`${colors.map(color=>`<span title="${color}" style="width:24px;height:24px;border-radius:50%;background:${color};border:1px solid rgba(255,255,255,.3);box-shadow:0 2px 8px rgba(0,0,0,.2);"></span>`).join('')}<span>${esc(school||'Default Sclshi')} · ${colors.join(' · ')}</span>`;
+}
+function previewAdminTheme(school){
+  if(currentUser?.role!=='admin')return;
+  adminThemePreviewSchool=school;
+  applySchoolTheme(school);
+  renderAdminThemePreviewMeta(school);
+}
+function resetAdminThemePreview(){
+  if(currentUser?.role!=='admin')return;
+  adminThemePreviewSchool='';
+  applySchoolTheme(currentUser.school);
+  const select=document.getElementById('admin-theme-preview');
+  if(select)select.value=currentUser.school;
+  renderAdminThemePreviewMeta(currentUser.school);
+  showToast('Theme reset to your school.');
+}
 const CREDITS_PER_DOLLAR=100;
 let authToken=localStorage.getItem('ew_token');
 let currentUser=null,currentBetMarket=null,currentBetSide='YES';
@@ -1775,30 +1891,30 @@ function goToMarkets(){
 
 // ── AUTH ──
 async function doLogin(){
-  const email=document.getElementById('login-email').value.trim();
+  const identifier=document.getElementById('login-email').value.trim();
   const password=document.getElementById('login-pass').value;
   const errEl=document.getElementById('auth-error');
   errEl.style.display='none';
   try{
-    const data=await api('POST','/auth/login',{email,password});
-    authToken=data.token;localStorage.setItem('ew_token',authToken);currentUser=data.user;
+    const data=await api('POST','/auth/login',{identifier,password});
+    authToken=data.token;localStorage.setItem('ew_token',authToken);currentUser=data.user;applySchoolTheme(currentUser.school);
     if(currentUser.role==='admin'||sessionStorage.getItem('access_granted')) enterApp();
     else showLiveScreen();
   }catch(e){errEl.textContent=e.message;errEl.style.display='block';}
 }
 async function doRegister(){
-  const name=document.getElementById('reg-name').value.trim();
-  const email=document.getElementById('reg-email').value.trim();
-  const grade=document.getElementById('reg-grade').value;
+  const username=document.getElementById('reg-username').value.trim();
+  const phone=document.getElementById('reg-phone').value.trim();
+  const school=document.getElementById('reg-school').value;
   const password=document.getElementById('reg-pass').value;
-  if(!name||!email||!password){showRegError('Please fill all fields.');return;}
+  if(!username||!phone||!school||!password){showRegError('Please fill all fields.');return;}
   if(password.length<6){showRegError('Password must be at least 6 characters.');return;}
   const btn=document.getElementById('reg-btn');
   btn.disabled=true;btn.textContent='Creating…';
   try{
-    const data=await api('POST','/auth/register',{name,email,password,grade});
+    const data=await api('POST','/auth/register',{username,phone,password,school});
     hideRegister();
-    showVerifyScreen(data.pendingId);
+    showVerifyScreen(data.pendingId,data.devCode);
   }catch(e){showRegError(e.message);btn.disabled=false;btn.textContent='Create Account';}
 }
 async function doForgotPassword(){
@@ -1810,9 +1926,9 @@ async function doForgotPassword(){
   catch(e){errEl.textContent=e.message;errEl.style.display='block';}
 }
 function showRegError(msg){const el=document.getElementById('reg-error');el.textContent=msg;el.style.display='block';}
-function showRegister(){document.getElementById('register-screen').style.display='flex';}
+function showRegister(){document.getElementById('register-screen').style.display='flex';applySchoolTheme(document.getElementById('reg-school').value);}
 function showAuthScreen(){document.getElementById('live-screen').style.display='none';document.getElementById('auth-screen').style.display='flex';}
-function hideRegister(){document.getElementById('register-screen').style.display='none';}
+function hideRegister(){document.getElementById('register-screen').style.display='none';applySchoolTheme(currentUser?.school);}
 function showForgotPassword(){document.getElementById('forgot-screen').style.display='flex';}
 function showResetPassword(token){
   document.getElementById('live-screen').style.display='none';
@@ -1823,11 +1939,14 @@ function showResetPassword(token){
   document.getElementById('reset-success').style.display='none';
   document.getElementById('reset-screen').style.display='flex';
 }
-function showVerifyScreen(pendingId){
+function showVerifyScreen(pendingId,devCode){
   document.getElementById('verify-pending-id').value=pendingId;
   document.getElementById('verify-screen').style.display='flex';
   document.getElementById('verify-error').style.display='none';
   document.getElementById('verify-code-input').value='';
+  document.getElementById('verify-message').textContent=devCode
+    ? `SMS is not configured locally. Use development code ${devCode}.`
+    : 'We texted you a 6-digit code. Enter it below to activate your account.';
 }
 function hideForgotPassword(){document.getElementById('forgot-screen').style.display='none';}
 function hideResetPassword(){
@@ -1870,22 +1989,28 @@ async function doVerifyCode(){
   btn.disabled=true;btn.textContent='Verifying…';
   try{
     const data=await api('POST','/auth/verify-code',{pendingId,code});
-    authToken=data.token;localStorage.setItem('ew_token',authToken);currentUser=data.user;
+    authToken=data.token;localStorage.setItem('ew_token',authToken);currentUser=data.user;applySchoolTheme(currentUser.school);
     document.getElementById('verify-screen').style.display='none';
     enterApp();
   }catch(e){errEl.textContent=e.message;errEl.style.display='block';btn.disabled=false;btn.textContent='Verify';}
 }
 async function doResendCode(){
   const pendingId=document.getElementById('verify-pending-id').value;
-  try{await api('POST','/auth/resend-code',{pendingId});showToast('New code sent!');}
+  try{
+    const data=await api('POST','/auth/resend-code',{pendingId});
+    if(data.devCode) document.getElementById('verify-message').textContent=`SMS is not configured locally. Use development code ${data.devCode}.`;
+    showToast(data.message||'New code sent!');
+  }
   catch(e){alert(e.message);}
 }
 function doLogout(){
   authToken=null;currentUser=null;localStorage.removeItem('ew_token');sessionStorage.removeItem('access_granted');
+  adminThemePreviewSchool='';
   sessionStorage.removeItem('popup_tab_unlocked');
   sessionStorage.removeItem('popup_unlock_token');
   popupTabUnlocked=false;
   popupUnlockToken='';
+  applySchoolTheme();
   closeAssistanceStream();
   assistanceDirectory=[];
   assistanceState={contacts:[],incomingRequests:[],helperFor:[],currentSessions:[],recentSessions:[]};
@@ -1914,6 +2039,7 @@ function doLogout(){
 }
 async function enterApp(){
   currentUser=await api('GET','/me');
+  applySchoolTheme(currentUser.school);
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('live-screen').style.display='none';
   document.getElementById('app').style.display='block';
@@ -1948,7 +2074,7 @@ function updateTopbar(){
   document.getElementById('topbar-user').textContent=currentUser.name+' · '+currentUser.id;
   document.getElementById('topbar-credits').textContent=currentUser.credits.toLocaleString();
 }
-async function refreshUser(){currentUser=await api('GET','/me');updateTopbar();}
+async function refreshUser(){currentUser=await api('GET','/me');applySchoolTheme(currentUser.school);updateTopbar();}
 async function loadCasinoConfig(){
   try{
     casinoConfig=await api('GET','/casino/config');
@@ -2249,7 +2375,6 @@ function switchTab(tab){
   if(tab==='feed')renderFeed();
   if(tab==='portfolio')renderPortfolio();
   if(tab==='leaderboard')renderLeaderboard();
-  if(tab==='store')renderStore();
   if(tab==='messages')renderMessages();
   if(tab==='suggestions')renderSuggestions();
   if(tab==='exchange')renderExchangeTab();
@@ -3414,10 +3539,12 @@ async function renderLeaderboard(){
     const ini=initials(u.name||u.id);
     const isMe=u.id===currentUser.id;
     const hasProfile=u.on_email_list;
+    const school=u.school||'School not set';
+    const schoolColor=SCHOOL_THEMES[u.school]?.primary||'#55556a';
     return `<div class="leaderboard-row" style="${isMe?'background:var(--accent-bg);border-radius:var(--radius);padding:12px 10px;':''}" onclick="${hasProfile&&!isMe?`openProfile('${u.id}')`:'' }">
       <span class="lb-rank" style="${i<3?'font-size:18px;':''}">${i<3?medals[i]:'#'+(i+1)}</span>
       <div class="lb-avatar">${ini}</div>
-      <div style="flex:1;"><div class="lb-name">${esc(u.name)||u.id} ${isMe?'<span style="font-size:11px;color:var(--accent)">(you)</span>':''}</div><div class="lb-id">${esc(u.grade||'')} · ${esc(u.id)}</div></div>
+      <div style="flex:1;min-width:0;"><div class="lb-name">${esc(u.name)||u.id} ${isMe?'<span style="font-size:11px;color:var(--accent)">(you)</span>':''}</div><div class="lb-school"><span class="lb-school-dot" style="background:${schoolColor}"></span>${esc(school)}</div><div class="lb-id" style="margin-top:4px;">${esc(u.grade||'No grade')} · ${esc(u.id)}</div></div>
       <div style="font-size:14px;font-weight:700;color:var(--green)">⬡ ${u.credits.toLocaleString()}</div>
     </div>`;
   }).join('');
@@ -3749,26 +3876,6 @@ async function submitPokerDraw(matchId){
       showToast('Your draw has been submitted.');
     }
   }catch(e){showToast(e.message);}
-}
-
-// ── STORE ──
-async function renderStore(){
-  let items,history;
-  try{[items,history]=await Promise.all([api('GET','/store'),api('GET','/store/redemptions/mine')]);}catch(e){document.getElementById('store-grid').innerHTML='<p style="color:var(--red);font-size:13px;">Failed to load: '+e.message+'</p>';return;}
-  document.getElementById('store-grid').innerHTML=items.map(item=>{
-    const canAfford=currentUser.credits>=item.cost;
-    return `<div class="store-item"><div class="store-item-icon">${item.icon}</div><div class="store-item-name">${item.name}</div><div class="store-item-desc">${item.description}</div><div class="store-item-cost">⬡ ${item.cost.toLocaleString()}</div>
-      <button class="btn-redeem" ${canAfford?'':'disabled'} onclick="redeemItem('${item.id}')">${canAfford?'Redeem':'Need more credits'}</button></div>`;
-  }).join('')||'<p style="color:var(--text3);font-size:13px;">No items yet.</p>';
-  document.getElementById('redemption-history').innerHTML=!history.length
-    ?'<p style="color:var(--text3);font-size:13px;">No redemptions yet.</p>'
-    :history.map(r=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="color:var(--text)">${r.icon} ${r.name}</span><span style="color:var(--text3)">⬡ ${r.cost} · ${new Date(r.timestamp).toLocaleDateString()}</span></div>`).join('');
-}
-async function redeemItem(itemId){
-  const items=await api('GET','/store');const item=items.find(s=>s.id===itemId);if(!item)return;
-  if(!confirm(`Redeem "${item.name}" for ⬡ ${item.cost}?`))return;
-  try{await api('POST','/store/'+itemId+'/redeem');await refreshUser();renderStore();showNotif('store-notification',`Redeemed ${item.icon} ${item.name}!`,'success');}
-  catch(e){showNotif('store-notification',e.message,'error');}
 }
 
 // ── MESSAGES ──
@@ -4139,6 +4246,12 @@ async function pollResolutions(){
 // ── ADMIN ──
 async function renderAdminTab(){
   if(!currentUser||currentUser.role!=='admin')return;
+  const themeSelect=document.getElementById('admin-theme-preview');
+  const selectedTheme=adminThemePreviewSchool||currentUser.school;
+  if(themeSelect){
+    themeSelect.innerHTML=Object.keys(SCHOOL_THEMES).map(school=>`<option value="${esc(school)}" ${school===selectedTheme?'selected':''}>${esc(school)}</option>`).join('');
+    renderAdminThemePreviewMeta(selectedTheme);
+  }
   const requests=[
     api('GET','/admin/stats'),
     api('GET','/markets'),
