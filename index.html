@@ -1403,18 +1403,6 @@
       </div>
 
       <div class="panel"><div class="panel-title">Resolve Markets</div><div id="admin-markets-list"></div></div>
-      <div class="panel">
-        <div class="panel-title">Manage Store</div>
-        <div class="admin-form-row">
-          <div class="form-group"><label>Item Name</label><input type="text" id="store-item-name" placeholder="Café Sandwich"></div>
-          <div class="form-group"><label>Emoji</label><input type="text" id="store-item-icon" placeholder="🥪" maxlength="2"></div>
-          <div class="form-group"><label>Cost</label><input type="number" id="store-item-cost" min="1" placeholder="150"></div>
-        </div>
-        <div class="form-group"><label>Description</label><input type="text" id="store-item-desc" placeholder="Redeemable at the school café"></div>
-        <button class="btn-admin" onclick="addStoreItem()">Add Item</button>
-        <hr class="divider">
-        <div id="admin-store-list"></div>
-      </div>
       <div class="panel"><div class="panel-title">Student Accounts</div><div id="admin-users-list"></div></div>
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
@@ -4256,11 +4244,9 @@ async function renderAdminTab(){
     api('GET','/admin/stats'),
     api('GET','/markets'),
     api('GET','/users'),
-    api('GET','/store'),
   ];
   const fallbacks=[
     {students:0,openMarkets:0,totalBets:0,pendingVol:0},
-    [],
     [],
     [],
   ];
@@ -4269,9 +4255,9 @@ async function renderAdminTab(){
     fallbacks.push({stats:{},bets:[],total:0,hasMore:false});
   }
   const _results=await Promise.allSettled(requests);
-  const [stats,markets,users,storeItems]=_results.slice(0,4).map((r,i)=>r.status==='fulfilled'?r.value:(fallbacks[i]??{}));
+  const [stats,markets,users]=_results.slice(0,3).map((r,i)=>r.status==='fulfilled'?r.value:(fallbacks[i]??{}));
   const casinoData=CASINO_ENABLED
-    ?(_results[4]?.status==='fulfilled'?_results[4].value:(fallbacks[4]??{stats:{},bets:[],total:0,hasMore:false}))
+    ?(_results[3]?.status==='fulfilled'?_results[3].value:(fallbacks[3]??{stats:{},bets:[],total:0,hasMore:false}))
     :{stats:{},bets:[],total:0,hasMore:false};
   document.getElementById('admin-stats').innerHTML=`
     <div class="stat-card"><div class="stat-label">Students</div><div class="stat-value">${stats.students}</div></div>
@@ -4324,10 +4310,6 @@ async function renderAdminTab(){
       </div></div>`;
   }).join('')||'<p style="color:var(--text3);font-size:13px;">No markets.</p>';
 
-  document.getElementById('admin-store-list').innerHTML=storeItems.map(item=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
-      <span style="font-size:20px;">${item.icon}</span><span style="flex:1;font-size:13px;color:var(--text)">${item.name} — ⬡${item.cost}</span>
-      <button class="btn-admin btn-sm btn-danger" onclick="removeStoreItem('${item.id}')">Remove</button></div>`).join('')||'<p style="color:var(--text3);font-size:13px;">No items.</p>';
   const isGrose=currentUser.id==='GROSE';
   const emailCount=users.filter(u=>u.on_email_list).length;
   document.getElementById('admin-users-list').innerHTML=`
@@ -5270,15 +5252,6 @@ async function sendDigest(){
     alert('Failed: '+e.message);
   }finally{btn.disabled=false;btn.textContent='Send Weekly Digest';}
 }
-async function addStoreItem(){
-  const name=document.getElementById('store-item-name').value.trim(),icon=document.getElementById('store-item-icon').value.trim()||'🎁';
-  const cost=parseInt(document.getElementById('store-item-cost').value),description=document.getElementById('store-item-desc').value.trim();
-  if(!name||!cost){alert('Fill in name and cost.');return;}
-  await api('POST','/store',{name,icon,cost,description});
-  document.getElementById('store-item-name').value='';document.getElementById('store-item-icon').value='';document.getElementById('store-item-cost').value='';document.getElementById('store-item-desc').value='';
-  renderAdminTab();showToast('Store item added!');
-}
-async function removeStoreItem(id){await api('DELETE','/store/'+id);renderAdminTab();}
 async function addCreditsToUser(userId){
   const amount=parseInt(document.getElementById('add-cred-'+userId).value);if(!amount||amount<=0)return;
   try{await api('POST','/users/'+userId+'/add-credits',{amount});await refreshUser();renderAdminTab();showToast(`Added ⬡${amount}`);}
