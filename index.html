@@ -226,6 +226,8 @@
   select,textarea{width:100%;padding:11px 14px;background:var(--bg3);border:1px solid var(--border-hi);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:14px;color:var(--text);outline:none}
   textarea{resize:vertical;min-height:70px}
   .tab-content{display:none}.tab-content.active{display:block}
+  #casino-integrated-frame{display:block;width:100%;height:min(860px,calc(100vh - 165px));min-height:650px;border:0;border-radius:18px;background:#0d1522}
+  #tab-casino.active> :not(#casino-integrated-frame){display:none!important}
   .history-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
   .loading{text-align:center;padding:40px;color:var(--text3);font-size:13px}
   ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
@@ -530,7 +532,7 @@
   </div>
   <div class="nav-tabs">
     <div class="nav-tab active" data-tab="markets" onclick="switchTab('markets')">Markets</div>
-    <div class="nav-tab" onclick="window.location.href='/casino'">Casino</div>
+    <div class="nav-tab" data-tab="casino" onclick="switchTab('casino')">Casino</div>
     <div class="nav-tab" data-tab="feed" onclick="switchTab('feed')">sclgram</div>
     <div class="nav-tab" data-tab="portfolio" onclick="switchTab('portfolio')">My Bets</div>
     <div class="nav-tab" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</div>
@@ -563,6 +565,7 @@
 
 <!-- CASINO -->
     <div id="tab-casino" class="tab-content">
+      <iframe id="casino-integrated-frame" title="Sclshi Casino" src="/casino-embed" loading="lazy"></iframe>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;flex-wrap:wrap;gap:12px;">
         <div>
           <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;">Sclshi Casino</h2>
@@ -1732,9 +1735,9 @@ function applyChanceGamesAvailability(){
   const spinBtn=document.getElementById('spin-topbar-btn');
   if(spinBtn) spinBtn.style.display=CASINO_ENABLED?'inline-flex':'none';
   const casinoTabButton=document.querySelector('.nav-tab[data-tab="casino"]');
-  if(casinoTabButton) casinoTabButton.style.display=CASINO_ENABLED?'block':'none';
+  if(casinoTabButton) casinoTabButton.style.display='block';
   const casinoTab=document.getElementById('tab-casino');
-  if(casinoTab) casinoTab.style.display=CASINO_ENABLED?'':'none';
+  if(casinoTab) casinoTab.style.display='';
 }
 function clearPopupDomGuard(){
   clearInterval(popupDomGuardInterval);
@@ -2381,7 +2384,6 @@ function restoreTabFromPath(){
 
 function switchTab(tab,{updateHistory=true,replace=false}={}){
   if(tab==='assistance'&&!canUseAssistanceTab()) return;
-  if(tab==='casino'&&!CASINO_ENABLED) return;
   const content=document.getElementById('tab-'+tab);
   const nav=document.querySelector(`.nav-tab[data-tab="${tab}"]`);
   if(!content||!nav) return;
@@ -2402,7 +2404,6 @@ function switchTab(tab,{updateHistory=true,replace=false}={}){
   if(tab==='assistance')renderAssistanceTab();
   if(tab==='admin')renderAdminTab();
   if(tab==='popup')renderPopupTab();
-  if(tab==='casino'){initCasino();}
 }
 
 window.addEventListener('popstate',()=>{
