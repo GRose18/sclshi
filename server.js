@@ -11,6 +11,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_place
 const { google } = require('googleapis');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const bootstrapSecrets = new Map();
 function getBootstrapSecret(envKey, label, length = 18) {
@@ -606,14 +607,17 @@ async function appendToSheet(name, email, grade, school) {
 // Send email via Apps Script
 async function sendViaAppsScript(type, payload) {
   try {
-    if (!process.env.APPS_SCRIPT_URL) { console.log('[Email] APPS_SCRIPT_URL not set, skipping'); return 0; }
+    if (!process.env.APPS_SCRIPT_URL || !process.env.MAIL_BRIDGE_SECRET) {
+      console.log('[Email] APPS_SCRIPT_URL or MAIL_BRIDGE_SECRET not set, skipping');
+      return 0;
+    }
     const fetchImpl = globalThis.fetch
       ? globalThis.fetch.bind(globalThis)
       : (...args) => import('node-fetch').then(({default:f})=>f(...args));
     const res = await fetchImpl(process.env.APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, ...payload }),
+      body: JSON.stringify({ type, secret: process.env.MAIL_BRIDGE_SECRET, ...payload }),
     });
     if (!res.ok) {
       const text = await res.text().catch(()=>'');
@@ -624,30 +628,48 @@ async function sendViaAppsScript(type, payload) {
   } catch(e) { console.error('[Email] Error:', e.message); return 0; }
 }
 
-async function sendVerificationSms(phone, code) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE_NUMBER;
-  if (!accountSid || !authToken || !from) return false;
-  const body = new URLSearchParams({
-    To: phone,
-    From: from,
-    Body: `Your Sclshi verification code is ${code}. It expires in 10 minutes.`,
+async function sendVerificationEmail(email, name, code) {
+  return sendViaAppsScript('verification_code', {
+    email,
+    name,
+    code,
+    expiresMinutes: 10,
+    siteUrl: CLIENT_URL,
   });
-  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(()=>'');
-    throw new Error(`SMS delivery failed (${response.status})${detail ? `: ${detail.slice(0,160)}` : ''}`);
-  }
-  return true;
 }
+
+function createRateLimit({ windowMs, max, message }) {
+  const attempts = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = req.ip || req.socket?.remoteAddress || 'unknown';
+    const recent = (attempts.get(key) || []).filter(timestamp => now - timestamp < windowMs);
+    if (recent.length >= max) {
+      const retryAfter = Math.max(1, Math.ceil((windowMs - (now - recent[0])) / 1000));
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: message });
+    }
+    recent.push(now);
+    attempts.set(key, recent);
+    if (attempts.size > 10000) {
+      for (const [attemptKey, timestamps] of attempts) {
+        if (!timestamps.some(timestamp => now - timestamp < windowMs)) attempts.delete(attemptKey);
+      }
+    }
+    next();
+  };
+}
+
+const requestVerificationLimit = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many verification emails requested. Please wait and try again.',
+});
+const verifyCodeLimit = createRateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  message: 'Too many verification attempts. Please wait and try again.',
+});
 
 function generateId(p='') { return p+Date.now()+Math.random().toString(36).slice(2,6); }
 function generateToken() { return crypto.randomBytes(32).toString('hex'); }
@@ -1665,8 +1687,8 @@ async function getAssistanceStateForUser(userId){
   ]);
   return { contacts, incomingRequests, helperFor, currentSessions, recentSessions };
 }
-// ── PHONE VERIFICATION ──
-app.post('/api/auth/verify-code', async(req,res)=>{
+// ── EMAIL VERIFICATION ──
+app.post('/api/auth/verify-code', verifyCodeLimit, async(req,res)=>{
   try{
     const {pendingId,code}=req.body;
     if(!pendingId||!code) return res.status(400).json({error:'Missing fields'});
@@ -1677,32 +1699,32 @@ app.post('/api/auth/verify-code', async(req,res)=>{
       return res.status(400).json({error:'Code expired. Please register again.'});
     }
     if(pending.code!==code.trim()) return res.status(400).json({error:'Invalid code. Try again.'});
-    if(await db.get('SELECT id FROM users WHERE phone=?',[pending.phone]))
-      return res.status(409).json({error:'An account with that phone number already exists'});
+    if(await db.get('SELECT id FROM users WHERE LOWER(email)=LOWER(?)',[pending.email]))
+      return res.status(409).json({error:'An account with that email already exists'});
     if(await db.get('SELECT id FROM users WHERE LOWER(name)=LOWER(?)',[pending.name]))
       return res.status(409).json({error:'That username is already taken'});
     const uid=generateId('U');
     await db.run('INSERT INTO users (id,name,email,phone,password,role,credits,grade,school,email_verified,on_email_list,created_at) VALUES (?,?,?,?,?,?,?,?,?,1,0,?)',
-      [uid,pending.name,null,pending.phone,pending.password,'student',200,'',pending.school,Date.now()]);
+      [uid,pending.name,pending.email,null,pending.password,'student',200,'',pending.school,Date.now()]);
     await db.run('DELETE FROM pending_registrations WHERE id=?',[pendingId]);
     await recordTx(uid,200,'signup_bonus',null,'Welcome bonus');
-    appendToSheet(pending.name,pending.phone,'',pending.school);
+    appendToSheet(pending.name,pending.email,'',pending.school);
     const token=jwt.sign({id:uid,role:'student'},JWT_SECRET,{expiresIn:'30d'});
     const user=await db.get('SELECT id,name,email,phone,role,credits,grade,school,on_email_list FROM users WHERE id=?',[uid]);
     res.json({token,user,message:'Account created!'});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-app.post('/api/auth/resend-code', async(req,res)=>{
+app.post('/api/auth/resend-code', requestVerificationLimit, async(req,res)=>{
   try{
     const {pendingId}=req.body;
     const pending=await db.get('SELECT * FROM pending_registrations WHERE id=?',[pendingId]);
     if(!pending) return res.status(400).json({error:'Registration not found. Please register again.'});
     const code=Math.floor(100000+Math.random()*900000).toString();
     await db.run('UPDATE pending_registrations SET code=?,expires_at=? WHERE id=?',[code,Date.now()+600000,pendingId]);
-    const sent=await sendVerificationSms(pending.phone,code);
-    if(!sent && process.env.NODE_ENV==='production') return res.status(503).json({error:'SMS verification is not configured'});
-    res.json({message:sent?'New code sent!':'Development code generated.',...(process.env.NODE_ENV!=='production'&&!sent?{devCode:code}:{})});
+    const sent=await sendVerificationEmail(pending.email,pending.name,code);
+    if(!sent && process.env.NODE_ENV==='production') return res.status(503).json({error:'Email verification is not configured'});
+    res.json({message:sent?'New code sent by email!':'Development code generated.',...(process.env.NODE_ENV!=='production'&&!sent?{devCode:code}:{})});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -2063,28 +2085,32 @@ app.post('/api/auth/login', async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-app.post('/api/auth/register', async(req,res)=>{
+app.post('/api/auth/register', requestVerificationLimit, async(req,res)=>{
   try{
-    const {username,phone,password,school}=req.body;
+    const {username,email,password,school}=req.body;
     const cleanUsername=String(username||'').trim();
-    const normalizedPhone=normalizeUsPhone(phone);
-    if(!cleanUsername||!normalizedPhone||!password||!school) return res.status(400).json({error:'Enter a username, valid US phone number, school, and password'});
+    const cleanEmail=String(email||'').trim().toLowerCase();
+    if(!cleanUsername||!cleanEmail||!password||!school) return res.status(400).json({error:'Enter a username, email, school, and password'});
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return res.status(400).json({error:'Enter a valid email address'});
     if(!/^[a-zA-Z0-9_.-]{3,24}$/.test(cleanUsername)) return res.status(400).json({error:'Username must be 3–24 characters and use only letters, numbers, dots, dashes, or underscores'});
     if(!ALLOWED_SCHOOLS.includes(school)) return res.status(400).json({error:'Choose a school from the list'});
     if(await db.get('SELECT id FROM users WHERE LOWER(name)=LOWER(?)',[cleanUsername]))
       return res.status(409).json({error:'That username is already taken'});
-    if(await db.get('SELECT id FROM users WHERE phone=?',[normalizedPhone]))
-      return res.status(409).json({error:'An account with that phone number already exists'});
+    if(await db.get('SELECT id FROM users WHERE LOWER(email)=LOWER(?)',[cleanEmail]))
+      return res.status(409).json({error:'An account with that email already exists'});
     if(password.length<6) return res.status(400).json({error:'Password must be at least 6 characters'});
     const hash=await bcrypt.hash(password,10);
     const code=Math.floor(100000+Math.random()*900000).toString();
     const id=generateId('pending');
-    await db.run('DELETE FROM pending_registrations WHERE phone=?',[normalizedPhone]);
+    await db.run('DELETE FROM pending_registrations WHERE LOWER(email)=LOWER(?)',[cleanEmail]);
     await db.run('INSERT INTO pending_registrations (id,name,email,phone,password,grade,school,code,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [id,cleanUsername,`${normalizedPhone.slice(1)}@phone.local`,normalizedPhone,hash,'',school,code,Date.now()+600000,Date.now()]);
-    const sent=await sendVerificationSms(normalizedPhone,code);
-    if(!sent && process.env.NODE_ENV==='production') return res.status(503).json({error:'SMS verification is not configured'});
-    res.json({message:sent?'Verification code sent by text.':'Development code generated.',pendingId:id,...(process.env.NODE_ENV!=='production'&&!sent?{devCode:code}:{})});
+      [id,cleanUsername,cleanEmail,null,hash,'',school,code,Date.now()+600000,Date.now()]);
+    const sent=await sendVerificationEmail(cleanEmail,cleanUsername,code);
+    if(!sent && process.env.NODE_ENV==='production') {
+      await db.run('DELETE FROM pending_registrations WHERE id=?',[id]);
+      return res.status(503).json({error:'Email verification is not configured'});
+    }
+    res.json({message:sent?'Verification code sent by email.':'Development code generated.',pendingId:id,...(process.env.NODE_ENV!=='production'&&!sent?{devCode:code}:{})});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -3231,7 +3257,7 @@ app.get('/api/admin/stats', authMiddleware, adminOnly, async(req,res)=>{
     totalBets,
     pendingVol:0,
     totalCreditsInCirculation:circ,
-    mailConfigured:!!process.env.APPS_SCRIPT_URL,
+    mailConfigured:!!(process.env.APPS_SCRIPT_URL && process.env.MAIL_BRIDGE_SECRET),
   });
 });
 

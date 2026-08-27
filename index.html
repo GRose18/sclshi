@@ -398,7 +398,7 @@
       <div class="tagline">Prediction Markets</div>
     </div>
     <div id="auth-error" class="error-msg" style="display:none;"></div>
-    <div class="form-group"><label>Username or phone number</label><input type="text" id="login-email" placeholder="username or (713) 555-0123"></div>
+    <div class="form-group"><label>Username, email, or phone number</label><input type="text" id="login-email" placeholder="username or email"></div>
     <div class="form-group"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn-primary" onclick="doLogin()">Sign In</button>
     <div class="auth-toggle" style="margin-top:12px;"><a onclick="showForgotPassword()" style="color:var(--text3);font-size:12px;">Forgot password?</a></div>
@@ -410,11 +410,11 @@
 <!-- VERIFY -->
 <div id="verify-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
   <div class="auth-card">
-    <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center;color:var(--text);">Check your phone</h2>
-    <p id="verify-message" style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">We texted you a 6-digit code. Enter it below to activate your account.</p>
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center;color:var(--text);">Check your email</h2>
+    <p id="verify-message" style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">We emailed you a 6-digit code. Enter it below to activate your account.</p>
     <div id="verify-error" class="error-msg" style="display:none;"></div>
     <input type="hidden" id="verify-pending-id">
-    <div class="form-group"><label>Verification Code</label><input type="text" id="verify-code-input" placeholder="123456" maxlength="6" style="font-size:24px;font-weight:700;letter-spacing:0.2em;text-align:center;" onkeydown="if(event.key==='Enter')doVerifyCode()"></div>
+    <div class="form-group"><label>Verification Code</label><input type="text" id="verify-code-input" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code" style="font-size:24px;font-weight:700;letter-spacing:0.2em;text-align:center;" onkeydown="if(event.key==='Enter')doVerifyCode()"></div>
     <button class="btn-primary" id="verify-btn" onclick="doVerifyCode()">Verify</button>
     <div class="auth-toggle" style="margin-top:12px;"><a onclick="doResendCode()" style="color:var(--text3);font-size:12px;">Resend code</a></div>
   </div>
@@ -453,7 +453,7 @@
     <p style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px;">Sign up to start trading on Sclshi.</p>
     <div id="reg-error" class="error-msg" style="display:none;"></div>
     <div class="form-group"><label>Username</label><input type="text" id="reg-username" placeholder="Choose a username" maxlength="24" autocomplete="username"></div>
-    <div class="form-group"><label>Phone Number</label><input type="tel" id="reg-phone" placeholder="(713) 555-0123" autocomplete="tel"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="reg-email" placeholder="you@example.com" autocomplete="email"></div>
     <div class="form-group"><label>School</label>
       <select id="reg-school" onchange="applySchoolTheme(this.value)">
         <option value="" selected disabled>Choose your school</option>
@@ -1895,15 +1895,15 @@ async function doLogin(){
 }
 async function doRegister(){
   const username=document.getElementById('reg-username').value.trim();
-  const phone=document.getElementById('reg-phone').value.trim();
+  const email=document.getElementById('reg-email').value.trim();
   const school=document.getElementById('reg-school').value;
   const password=document.getElementById('reg-pass').value;
-  if(!username||!phone||!school||!password){showRegError('Please fill all fields.');return;}
+  if(!username||!email||!school||!password){showRegError('Please fill all fields.');return;}
   if(password.length<6){showRegError('Password must be at least 6 characters.');return;}
   const btn=document.getElementById('reg-btn');
   btn.disabled=true;btn.textContent='Creating…';
   try{
-    const data=await api('POST','/auth/register',{username,phone,password,school});
+    const data=await api('POST','/auth/register',{username,email,password,school});
     hideRegister();
     showVerifyScreen(data.pendingId,data.devCode);
   }catch(e){showRegError(e.message);btn.disabled=false;btn.textContent='Create Account';}
@@ -1936,8 +1936,8 @@ function showVerifyScreen(pendingId,devCode){
   document.getElementById('verify-error').style.display='none';
   document.getElementById('verify-code-input').value='';
   document.getElementById('verify-message').textContent=devCode
-    ? `SMS is not configured locally. Use development code ${devCode}.`
-    : 'We texted you a 6-digit code. Enter it below to activate your account.';
+    ? `Email is not configured locally. Use development code ${devCode}.`
+    : 'We emailed you a 6-digit code. Enter it below to activate your account.';
 }
 function hideForgotPassword(){document.getElementById('forgot-screen').style.display='none';}
 function hideResetPassword(){
@@ -1989,7 +1989,7 @@ async function doResendCode(){
   const pendingId=document.getElementById('verify-pending-id').value;
   try{
     const data=await api('POST','/auth/resend-code',{pendingId});
-    if(data.devCode) document.getElementById('verify-message').textContent=`SMS is not configured locally. Use development code ${data.devCode}.`;
+    if(data.devCode) document.getElementById('verify-message').textContent=`Email is not configured locally. Use development code ${data.devCode}.`;
     showToast(data.message||'New code sent!');
   }
   catch(e){alert(e.message);}
