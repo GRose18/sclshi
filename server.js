@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
+const { WebSocketServer, WebSocket } = require('ws');
 const { createClient } = require('@libsql/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -11,6 +13,14 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_place
 const { google } = require('googleapis');
 
 const app = express();
+const httpServer = http.createServer(app);
+const crashWss = new WebSocketServer({ noServer:true });
+httpServer.on('upgrade',(request,socket,head)=>{
+  let pathname='';
+  try{pathname=new URL(request.url,'http://localhost').pathname;}catch{}
+  if(pathname!=='/ws/crash') return socket.destroy();
+  crashWss.handleUpgrade(request,socket,head,websocket=>crashWss.emit('connection',websocket,request));
+});
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const bootstrapSecrets = new Map();
@@ -128,8 +138,18 @@ app.get(APP_TAB_ROUTES, (req, res) => {
 let db;
 const blackjackGames = new Map();
 const minesGames = new Map();
-const crashGames = new Map();
+const crashBets = new Map();
 const MINES_STALE_MS = 1000 * 60 * 20;
+const CRASH_COUNTDOWN_MS = 3000;
+const CRASH_RESULT_MS = 1200;
+const CRASH_TICK_MS = 100;
+function newCrashRoundId(){return generateId('crr');}
+function newCrashThreshold(){return Math.max(1,Math.floor((0.99/(1-Math.random()))*100)/100);}
+function makeCrashCountdown(id=newCrashRoundId(),now=Date.now()){
+  return {id,nextRoundId:newCrashRoundId(),phase:'countdown',startsAt:now+CRASH_COUNTDOWN_MS,startedAt:null,crashedAt:null,threshold:null};
+}
+let crashRound=makeCrashCountdown();
+let crashTickBusy=false;
 
 function attachDbHelpers(client){
   client.run = async (sql, args=[]) => client.execute({ sql, args });
@@ -3818,82 +3838,158 @@ app.post('/api/casino/limbo', authMiddleware, async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-async function recordCrashResult(userId,game,outcome,payout,profit,multiplier){
-  if(game.recorded) return;
-  game.recorded=true;
-  const betId=generateId('cbc');
+async function recordCrashResult(userId,bet,outcome,payout,profit,multiplier){
+  if(bet.recorded) return;
+  bet.recorded=true;
   await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
-    [betId,userId,'crash',game.betAmount,outcome,payout,profit,Date.now()]);
-  await recordTx(userId,profit,'casino_crash',betId,`Crash: ${outcome==='win'?'cashed out':'crashed'} at ${multiplier.toFixed(2)}x on ⬡${game.betAmount}`);
+    [bet.id,userId,'crash',bet.betAmount,outcome,payout,profit,Date.now()]);
+  await recordTx(userId,profit,'casino_crash',bet.id,`Crash: ${outcome==='win'?'cashed out':'crashed'} at ${multiplier.toFixed(2)}x on ⬡${bet.betAmount}`);
   invalidateCasinoBetsCache(userId);
 }
-function currentCrashMultiplier(game){
-  return Math.max(1,Math.exp((Date.now()-game.startedAt)/8500));
+function currentCrashMultiplier(now=Date.now()){
+  if(crashRound.phase!=='running'||!crashRound.startedAt) return crashRound.phase==='crashed' ? Number(crashRound.threshold||1) : 1;
+  return Math.max(1,Math.exp((now-crashRound.startedAt)/8500));
 }
+const crashRecentCashouts=[];
+function publicCrashState(now=Date.now()){
+  return {
+    type:'state',
+    roundId:crashRound.id,
+    nextRoundId:crashRound.nextRoundId,
+    phase:crashRound.phase,
+    startsAt:crashRound.startsAt,
+    startedAt:crashRound.startedAt,
+    crashedAt:crashRound.crashedAt,
+    multiplier:Number(currentCrashMultiplier(now).toFixed(4)),
+    crashPoint:crashRound.phase==='crashed'?crashRound.threshold:null,
+    serverNow:now,
+    players:[...crashBets.values()].filter(bet=>bet.roundId===crashRound.id).length,
+  };
+}
+function broadcastCrash(payload){
+  const message=JSON.stringify(payload);
+  crashWss.clients.forEach(client=>{if(client.readyState===WebSocket.OPEN)client.send(message);});
+}
+async function settleCrashBet(userId,bet,multiplier){
+  if(!bet||bet.status!=='active') return null;
+  bet.status='settling';
+  try{
+    const settledMultiplier=Math.max(1,Math.floor(multiplier*100)/100);
+    const payout=Math.floor(bet.betAmount*settledMultiplier);
+    const profit=payout-bet.betAmount;
+    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,userId]);
+    await recordCrashResult(userId,bet,'win',payout,profit,settledMultiplier);
+    crashBets.delete(userId);
+    const notice={type:'cashout',betId:bet.id,userId,username:bet.username,multiplier:settledMultiplier,profit};
+    crashRecentCashouts.push(notice);
+    if(crashRecentCashouts.length>12)crashRecentCashouts.shift();
+    broadcastCrash(notice);
+    return {multiplier:settledMultiplier,payout,profit};
+  }catch(error){bet.status='active';throw error;}
+}
+async function loseCrashBet(userId,bet,crashPoint){
+  if(!bet||bet.status!=='active') return;
+  bet.status='lost';
+  await recordCrashResult(userId,bet,'loss',0,-bet.betAmount,crashPoint);
+  crashBets.delete(userId);
+}
+async function tickCrashEngine(){
+  if(crashTickBusy)return;
+  crashTickBusy=true;
+  try{
+    const now=Date.now();
+    if(crashRound.phase==='countdown'&&now>=crashRound.startsAt){
+      crashRound.phase='running';
+      crashRound.startedAt=crashRound.startsAt;
+      crashRound.threshold=newCrashThreshold();
+      crashRound.crashedAt=null;
+      crashRecentCashouts.length=0;
+      crashBets.forEach(bet=>{if(bet.roundId===crashRound.id&&bet.status==='queued')bet.status='active';});
+      broadcastCrash({...publicCrashState(now),type:'round_start'});
+    }
+    if(crashRound.phase==='running'){
+      const multiplier=currentCrashMultiplier(now);
+      if(multiplier>=crashRound.threshold){
+        const crashPoint=crashRound.threshold;
+        crashRound.phase='crashed';
+        crashRound.crashedAt=now;
+        await Promise.all([...crashBets.entries()].filter(([,bet])=>bet.roundId===crashRound.id&&bet.status==='active').map(([userId,bet])=>loseCrashBet(userId,bet,crashPoint)));
+        broadcastCrash({...publicCrashState(now),type:'crash'});
+      }else{
+        await Promise.all([...crashBets.entries()].filter(([,bet])=>bet.roundId===crashRound.id&&bet.status==='active'&&bet.autoTarget&&multiplier>=bet.autoTarget).map(([userId,bet])=>settleCrashBet(userId,bet,bet.autoTarget)));
+      }
+    }
+    if(crashRound.phase==='crashed'&&now>=crashRound.crashedAt+CRASH_RESULT_MS){
+      crashRound=makeCrashCountdown(crashRound.nextRoundId,now);
+      broadcastCrash({...publicCrashState(now),type:'countdown'});
+    }
+    broadcastCrash(publicCrashState(now));
+  }catch(error){console.error('Crash engine tick error:',error);}
+  finally{crashTickBusy=false;}
+}
+function startCrashEngine(){
+  crashWss.on('connection',socket=>{
+    socket.send(JSON.stringify({...publicCrashState(),recentCashouts:crashRecentCashouts}));
+  });
+  setInterval(()=>void tickCrashEngine(),CRASH_TICK_MS);
+}
+
+app.get('/api/casino/crash/state', authMiddleware, async(req,res)=>{
+  try{
+    await tickCrashEngine();
+    const bet=crashBets.get(req.user.id);
+    const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    res.json({...publicCrashState(),recentCashouts:crashRecentCashouts,bet:bet?{id:bet.id,roundId:bet.roundId,betAmount:bet.betAmount,autoTarget:bet.autoTarget,status:bet.status}:null,newBalance:Math.floor(user.credits)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
 
 app.post('/api/casino/crash/start', authMiddleware, async(req,res)=>{
   try{
     const amount=Math.floor(Number(req.body.betAmount));
     if(!amount || amount<1) return res.status(400).json({error:'Minimum bet is ⬡1'});
-    const previous=crashGames.get(req.user.id);
-    if(previous && previous.status==='active'){
-      if(currentCrashMultiplier(previous)<previous.threshold) return res.status(400).json({error:'You already have an active Crash bet'});
-      await recordCrashResult(req.user.id,previous,'loss',0,-previous.betAmount,previous.threshold);
-      crashGames.delete(req.user.id);
-    }else if(previous){
-      crashGames.delete(req.user.id);
-    }
-    const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    await tickCrashEngine();
+    if(crashBets.has(req.user.id)) return res.status(400).json({error:'You already have a queued or active Crash bet'});
+    const user=await db.get('SELECT credits,name FROM users WHERE id=?',[req.user.id]);
     if(!user || Math.floor(user.credits)<amount) return res.status(400).json({error:'Insufficient credits'});
     const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
     if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
-    const game={
-      id:generateId('crg'),
+    const now=Date.now();
+    const roundId=crashRound.phase==='countdown'&&now<crashRound.startsAt ? crashRound.id : crashRound.nextRoundId;
+    const requestedTarget=Number(req.body.autoTarget);
+    const autoTarget=Number.isFinite(requestedTarget)&&requestedTarget>=1.01?Math.min(10000,requestedTarget):null;
+    const bet={
+      id:generateId('cbc'),
       betAmount:amount,
-      threshold:Math.max(1,Math.floor((0.99/(1-Math.random()))*100)/100),
-      startedAt:Date.now(),
-      status:'active',
+      roundId,
+      autoTarget,
+      username:String(user.name||req.user.id),
+      status:'queued',
       recorded:false,
     };
-    crashGames.set(req.user.id,game);
+    crashBets.set(req.user.id,bet);
     const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
-    res.json({gameId:game.id,threshold:game.threshold,startedAt:game.startedAt,newBalance:Math.floor(updated.credits)});
+    broadcastCrash(publicCrashState());
+    res.json({bet:{id:bet.id,roundId:bet.roundId,betAmount:bet.betAmount,autoTarget:bet.autoTarget,status:bet.status},state:publicCrashState(),newBalance:Math.floor(updated.credits)});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
 app.post('/api/casino/crash/cashout', authMiddleware, async(req,res)=>{
   try{
-    const game=crashGames.get(req.user.id);
-    if(!game || game.status!=='active') return res.status(400).json({error:'No active Crash bet'});
-    const multiplier=currentCrashMultiplier(game);
-    if(multiplier>=game.threshold){
-      game.status='lost';
-      await recordCrashResult(req.user.id,game,'loss',0,-game.betAmount,game.threshold);
-      const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
-      return res.status(409).json({error:'The round already crashed',crashed:true,multiplier:game.threshold,newBalance:Math.floor(updated.credits)});
-    }
-    const settledMultiplier=Math.floor(multiplier*100)/100;
-    const payout=Math.floor(game.betAmount*settledMultiplier);
-    const profit=payout-game.betAmount;
-    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
-    game.status='cashed';
-    await recordCrashResult(req.user.id,game,'win',payout,profit,settledMultiplier);
+    await tickCrashEngine();
+    const bet=crashBets.get(req.user.id);
+    if(!bet||bet.status!=='active'||bet.roundId!==crashRound.id||crashRound.phase!=='running') return res.status(400).json({error:'No active Crash bet'});
+    const multiplier=currentCrashMultiplier();
+    if(multiplier>=crashRound.threshold) return res.status(409).json({error:'The round already crashed',crashed:true,multiplier:crashRound.threshold});
+    const result=await settleCrashBet(req.user.id,bet,multiplier);
     const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
-    res.json({multiplier:settledMultiplier,payout,profit,newBalance:Math.floor(updated.credits)});
+    res.json({...result,newBalance:Math.floor(updated.credits)});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
 app.post('/api/casino/crash/finish', authMiddleware, async(req,res)=>{
   try{
-    const game=crashGames.get(req.user.id);
-    if(!game) return res.json({finished:true});
-    if(game.status==='active'){
-      game.status='lost';
-      await recordCrashResult(req.user.id,game,'loss',0,-game.betAmount,game.threshold);
-    }
-    crashGames.delete(req.user.id);
     const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
-    res.json({finished:true,profit:game.status==='lost'?-game.betAmount:null,newBalance:Math.floor(updated.credits)});
+    res.json({finished:true,state:publicCrashState(),newBalance:Math.floor(updated.credits)});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -4080,7 +4176,8 @@ app.use((err, req, res, next) => {
 });
 
 initDB().then(()=>{
-  app.listen(PORT,()=>{
+  startCrashEngine();
+  httpServer.listen(PORT,()=>{
     console.log(`\n🚀 Sclshi Markets running at http://localhost:${PORT}\n`);
   });
 }).catch(err=>{console.error('DB init failed:',err);process.exit(1);});
