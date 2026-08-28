@@ -2066,6 +2066,15 @@ function updateTopbar(){
   document.getElementById('topbar-user').textContent=currentUser.name+' · '+currentUser.id;
   document.getElementById('topbar-credits').textContent=currentUser.credits.toLocaleString();
 }
+window.addEventListener('message',event=>{
+  const casinoFrame=document.getElementById('casino-integrated-frame');
+  if(event.origin!==window.location.origin||!casinoFrame||event.source!==casinoFrame.contentWindow)return;
+  if(event.data?.type!=='sclshi:credits'||!currentUser)return;
+  const credits=Math.max(0,Math.floor(Number(event.data.credits)));
+  if(!Number.isFinite(credits))return;
+  currentUser.credits=credits;
+  updateTopbar();
+});
 async function refreshUser(){currentUser=await api('GET','/me');applySchoolTheme(currentUser.school);updateTopbar();}
 async function loadCasinoConfig(){
   try{

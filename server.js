@@ -58,7 +58,7 @@ const casinoBetsCache = new Map();
 const BETS_MINE_CACHE_TTL_MS = 10000;
 const betsMineCache = new Map();
 let betsSnapshotVersion = 0;
-const CASINO_ENABLED = false;
+const CASINO_ENABLED = true;
 const NOTIFICATIONS_CACHE_TTL_MS = 15000;
 const notificationsListCache = new Map();
 const notificationsUnreadCache = new Map();
@@ -128,10 +128,11 @@ app.get(APP_TAB_ROUTES, (req, res) => {
 let db;
 const blackjackGames = new Map();
 const minesGames = new Map();
+const crashGames = new Map();
 const MINES_STALE_MS = 1000 * 60 * 20;
 
 function attachDbHelpers(client){
-  client.run = async (sql, args=[]) => { await client.execute({ sql, args }); };
+  client.run = async (sql, args=[]) => client.execute({ sql, args });
   client.get = async (sql, args=[]) => { const r = await client.execute({ sql, args }); return r.rows[0] || null; };
   client.all = async (sql, args=[]) => { const r = await client.execute({ sql, args }); return r.rows; };
   client.exec = async (sql) => { for (const s of sql.split(';').map(s=>s.trim()).filter(Boolean)) await client.execute(s); };
@@ -221,8 +222,7 @@ function isDesktopCasinoRequest(req){
 }
 function requireDesktopCasinoAccess(req,res,next){
   if(!CASINO_ENABLED) return res.status(404).json({error:'Casino is currently unavailable'});
-  if(isDesktopCasinoRequest(req)) return next();
-  return res.status(403).json({error:'Casino is only available in the sclshi desktop app'});
+  next();
 }
 
 async function initDB() {
@@ -3300,6 +3300,13 @@ app.get('/api/casino/config', authMiddleware, async(req,res)=>{
     res.json(await getCasinoConfig(req.user.id));
   }catch(e){res.status(500).json({error:e.message});}
 });
+app.get('/api/casino/wallet', authMiddleware, async(req,res)=>{
+  try{
+    const user = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    if(!user) return res.status(404).json({error:'User not found'});
+    res.json({balance:Math.max(0,Math.floor(toSafeNumber(user.credits,0)))});
+  }catch(e){res.status(500).json({error:e.message});}
+});
 app.post('/api/admin/casino/config', authMiddleware, adminOnly, async(req,res)=>{
   try{
     if(!isGrose(req)) return res.status(403).json({error:'Only the primary admin can update casino odds'});
@@ -3382,7 +3389,8 @@ app.post('/api/casino/blackjack/deal', authMiddleware, async(req,res)=>{
     const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits)<amount) return res.status(400).json({error:'Insufficient credits'});
 
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[amount,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     const deck=makeDeck();
     const playerHand=[deck.pop(),deck.pop()];
     const dealerCards=[deck.pop(),deck.pop()];
@@ -3558,7 +3566,8 @@ app.post('/api/casino/dice', authMiddleware, async(req,res)=>{
     const multiplier = 99/winChance;
     const payout = won ? Math.floor(amount*multiplier) : 0;
     const profit = payout - amount;
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[amount,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     if(won) await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
     const betId = generateId('cbd');
     await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
@@ -3572,21 +3581,25 @@ app.post('/api/casino/dice', authMiddleware, async(req,res)=>{
 
 app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
   try{
-    const {betAmount, risk='low'} = req.body;
+    const {betAmount} = req.body;
     const amount = Math.floor(Number(betAmount));
+    const risk = String(req.body.risk || 'medium').toLowerCase();
+    const rows = clampNumber(Math.floor(Number(req.body.rows || 12)), 8, 16);
     if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
-    const riskTables = {
-      low:[3.2,1.6,1.15,0.92,0.75,0.92,1.15,1.6,3.2],
-      medium:[6,2.5,1.2,0.8,0.4,0.8,1.2,2.5,6],
-      high:[12,4.5,1.6,0.6,0.2,0.6,1.6,4.5,12],
-    };
-    if(!riskTables[risk]) return res.status(400).json({error:'Invalid risk'});
+    if(!['low','medium','high'].includes(risk)) return res.status(400).json({error:'Invalid risk'});
     const user = await db.get('SELECT * FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
     const { effective } = await getCasinoConfig(req.user.id);
     const plinkoOdds = effective.plinkoOdds;
 
-    const multipliers = riskTables[risk];
+    const edge = {low:5.6,medium:130,high:10000};
+    const floor = risk==='low' ? 0.5 : risk==='medium' ? 0.3 : 0.2;
+    const power = risk==='high' ? 7 : risk==='medium' ? 5 : 3;
+    const multipliers = Array.from({length:rows+1},(_,index)=>{
+      const distance = Math.abs(index-rows/2)/(rows/2);
+      const raw = floor+(edge[risk]-floor)*Math.pow(distance,power);
+      return Number(raw.toFixed(index===0?0:1));
+    });
     let slotIndex = 0;
     if(plinkoOdds<=0){
       let worstValue = Infinity;
@@ -3615,7 +3628,7 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
       });
       slotIndex = bestIndexes[Math.floor(Math.random()*bestIndexes.length)];
     }else{
-      const baseWeights = [1,8,28,56,70,56,28,8,1];
+      const baseWeights = Array.from({length:rows+1},(_,index)=>combination(rows,index));
       const oddsPower = (plinkoOdds - 100) / 50;
       const weighted = multipliers.map((multiplier, idx)=>baseWeights[idx] * Math.pow(Math.max(multiplier, 0.05), oddsPower));
       const totalWeight = weighted.reduce((sum, value)=>sum + value, 0);
@@ -3628,7 +3641,7 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
         }
       }
     }
-    const path = Array.from({length:8}, (_, idx)=>idx < slotIndex ? 1 : 0);
+    const path = Array.from({length:rows}, (_, idx)=>idx < slotIndex ? 1 : 0);
     for(let i=path.length-1;i>0;i--){
       const j=Math.floor(Math.random()*(i+1));
       [path[i],path[j]]=[path[j],path[i]];
@@ -3639,7 +3652,8 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
     const profit = payout - amount;
     const won = profit >= 0;
 
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[amount,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     if(payout > 0) await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
 
     const betId = generateId('cbp');
@@ -3652,11 +3666,13 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
     res.json({
       path,
       slotIndex,
+      rows,
       risk,
       multiplier,
       payout,
       profit,
       won,
+      balanceAfterBet:Math.floor(user.credits)-amount,
       newBalance: Math.floor(updated.credits)
     });
   }catch(e){res.status(500).json({error:e.message});}
@@ -3673,7 +3689,8 @@ app.post('/api/casino/mines/start', authMiddleware, async(req,res)=>{
     }
     const user = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[amount,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     const game = {
       betAmount: amount,
       mineCount,
@@ -3773,6 +3790,110 @@ app.post('/api/casino/mines/cashout', authMiddleware, async(req,res)=>{
       multiplier,
       newBalance:Math.floor(updated.credits),
     });
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/casino/limbo', authMiddleware, async(req,res)=>{
+  try{
+    const amount = Math.floor(Number(req.body.betAmount));
+    const target = Number(req.body.target);
+    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(!Number.isFinite(target) || target < 1.01 || target > 10000) return res.status(400).json({error:'Target must be between 1.01× and 10,000×'});
+    const user = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    if(!user || Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
+    const outcome = Math.max(1,Math.floor((0.99/(1-Math.random()))*100)/100);
+    const won = outcome >= target;
+    const payout = won ? Math.floor(amount*target) : 0;
+    const profit = payout-amount;
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
+    if(payout>0) await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
+    const betId=generateId('cbl');
+    await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
+      [betId,req.user.id,'limbo',amount,won?'win':'loss',payout,profit,Date.now()]);
+    await recordTx(req.user.id,profit,'casino_limbo',betId,`Limbo: ${outcome.toFixed(2)}x against ${target.toFixed(2)}x on ⬡${amount}`);
+    invalidateCasinoBetsCache(req.user.id);
+    const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    res.json({outcome,won,payout,profit,target,balanceAfterBet:Math.floor(user.credits)-amount,newBalance:Math.floor(updated.credits)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+async function recordCrashResult(userId,game,outcome,payout,profit,multiplier){
+  if(game.recorded) return;
+  game.recorded=true;
+  const betId=generateId('cbc');
+  await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
+    [betId,userId,'crash',game.betAmount,outcome,payout,profit,Date.now()]);
+  await recordTx(userId,profit,'casino_crash',betId,`Crash: ${outcome==='win'?'cashed out':'crashed'} at ${multiplier.toFixed(2)}x on ⬡${game.betAmount}`);
+  invalidateCasinoBetsCache(userId);
+}
+function currentCrashMultiplier(game){
+  return Math.max(1,Math.exp((Date.now()-game.startedAt)/8500));
+}
+
+app.post('/api/casino/crash/start', authMiddleware, async(req,res)=>{
+  try{
+    const amount=Math.floor(Number(req.body.betAmount));
+    if(!amount || amount<1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    const previous=crashGames.get(req.user.id);
+    if(previous && previous.status==='active'){
+      if(currentCrashMultiplier(previous)<previous.threshold) return res.status(400).json({error:'You already have an active Crash bet'});
+      await recordCrashResult(req.user.id,previous,'loss',0,-previous.betAmount,previous.threshold);
+      crashGames.delete(req.user.id);
+    }else if(previous){
+      crashGames.delete(req.user.id);
+    }
+    const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    if(!user || Math.floor(user.credits)<amount) return res.status(400).json({error:'Insufficient credits'});
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
+    const game={
+      id:generateId('crg'),
+      betAmount:amount,
+      threshold:Math.max(1,Math.floor((0.99/(1-Math.random()))*100)/100),
+      startedAt:Date.now(),
+      status:'active',
+      recorded:false,
+    };
+    crashGames.set(req.user.id,game);
+    const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    res.json({gameId:game.id,threshold:game.threshold,startedAt:game.startedAt,newBalance:Math.floor(updated.credits)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/casino/crash/cashout', authMiddleware, async(req,res)=>{
+  try{
+    const game=crashGames.get(req.user.id);
+    if(!game || game.status!=='active') return res.status(400).json({error:'No active Crash bet'});
+    const multiplier=currentCrashMultiplier(game);
+    if(multiplier>=game.threshold){
+      game.status='lost';
+      await recordCrashResult(req.user.id,game,'loss',0,-game.betAmount,game.threshold);
+      const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+      return res.status(409).json({error:'The round already crashed',crashed:true,multiplier:game.threshold,newBalance:Math.floor(updated.credits)});
+    }
+    const settledMultiplier=Math.floor(multiplier*100)/100;
+    const payout=Math.floor(game.betAmount*settledMultiplier);
+    const profit=payout-game.betAmount;
+    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
+    game.status='cashed';
+    await recordCrashResult(req.user.id,game,'win',payout,profit,settledMultiplier);
+    const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    res.json({multiplier:settledMultiplier,payout,profit,newBalance:Math.floor(updated.credits)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/casino/crash/finish', authMiddleware, async(req,res)=>{
+  try{
+    const game=crashGames.get(req.user.id);
+    if(!game) return res.json({finished:true});
+    if(game.status==='active'){
+      game.status='lost';
+      await recordCrashResult(req.user.id,game,'loss',0,-game.betAmount,game.threshold);
+    }
+    crashGames.delete(req.user.id);
+    const updated=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
+    res.json({finished:true,profit:game.status==='lost'?-game.betAmount:null,newBalance:Math.floor(updated.credits)});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
