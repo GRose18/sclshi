@@ -138,6 +138,8 @@ app.get(APP_TAB_ROUTES, (req, res) => {
 let db;
 const blackjackGames = new Map();
 const minesGames = new Map();
+const dragonTowerGames = new Map();
+const videoPokerGames = new Map();
 const crashBets = new Map();
 const MINES_STALE_MS = 1000 * 60 * 20;
 const CRASH_COUNTDOWN_MS = 3000;
@@ -1495,7 +1497,9 @@ function getRouletteMeta(number){
 function pickRouletteNumber(winningSet, odds){
   const winNumbers=[...winningSet];
   const loseNumbers=ROULETTE_NUMBERS.filter(n=>!winningSet.has(n));
-  const useWin = odds<=0 ? false : odds>=200 ? true : Math.random() < (odds/200);
+  const fairChance=winningSet.size/ROULETTE_NUMBERS.length;
+  const adjustedChance=odds<=100 ? fairChance*(odds/100) : fairChance+(1-fairChance)*((odds-100)/100);
+  const useWin = Math.random() < adjustedChance;
   const pool=(useWin?winNumbers:loseNumbers).length ? (useWin?winNumbers:loseNumbers) : (useWin?loseNumbers:winNumbers);
   return pool[Math.floor(Math.random()*pool.length)];
 }
@@ -4023,7 +4027,7 @@ app.post('/api/casino/coinflip', authMiddleware, async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-app.post('/api/casino/roulette', authMiddleware, adminOnly, async(req,res)=>{
+app.post('/api/casino/roulette', authMiddleware, async(req,res)=>{
   try{
     const amount = Math.floor(Number(req.body.betAmount));
     const betType = String(req.body.betType||'red').toLowerCase();
@@ -4063,6 +4067,106 @@ app.post('/api/casino/roulette', authMiddleware, adminOnly, async(req,res)=>{
       newBalance: Math.floor(updated.credits),
     });
   }catch(e){res.status(500).json({error:e.message});}
+});
+
+async function settleInstantCasinoBet(userId,game,amount,payout,description){
+  const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,userId,amount]);
+  if(toSafeNumber(debit.rowsAffected,0)<1) throw new Error('Insufficient credits');
+  if(payout>0) await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,userId]);
+  const profit=payout-amount;
+  const outcome=profit>0?'win':profit<0?'loss':'push';
+  const betId=generateId(`cb${game.slice(0,2)}`);
+  await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,userId,game,amount,outcome,payout,profit,Date.now()]);
+  await recordTx(userId,profit,`casino_${game}`,betId,description);
+  invalidateCasinoBetsCache(userId);
+  const updated=await db.get('SELECT credits FROM users WHERE id=?',[userId]);
+  return {profit,outcome,newBalance:Math.floor(updated.credits)};
+}
+
+const KENO_PAYTABLE={
+  1:{1:3.8},2:{1:1,2:9},3:{2:2,3:25},4:{2:1,3:5,4:70},5:{3:2,4:15,5:250},
+  6:{3:1,4:5,5:50,6:700},7:{4:2,5:15,6:150,7:1500},8:{4:1,5:8,6:50,7:400,8:3000},
+  9:{5:2,6:15,7:100,8:800,9:5000},10:{5:1,6:5,7:30,8:200,9:1500,10:10000},
+};
+app.post('/api/casino/keno',authMiddleware,async(req,res)=>{
+  try{
+    const amount=Math.floor(Number(req.body.betAmount));
+    const picks=[...new Set((Array.isArray(req.body.picks)?req.body.picks:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=40))];
+    if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(picks.length<1||picks.length>10)return res.status(400).json({error:'Choose between 1 and 10 numbers'});
+    const drawn=shuffle(Array.from({length:40},(_,i)=>i+1)).slice(0,10).sort((a,b)=>a-b);
+    const hits=picks.filter(n=>drawn.includes(n));
+    const multiplier=Number(KENO_PAYTABLE[picks.length]?.[hits.length]||0);
+    const payout=Math.floor(amount*multiplier);
+    const settled=await settleInstantCasinoBet(req.user.id,'keno',amount,payout,`Keno: ${hits.length}/${picks.length} hits at ${multiplier}x`);
+    res.json({drawn,hits,multiplier,payout,...settled});
+  }catch(e){res.status(String(e.message).includes('Insufficient')?400:500).json({error:e.message});}
+});
+
+const WHEEL_SEGMENTS=[0,1,0,1.2,0,1,0.5,2,0,1,0.5,3,0,1.5,0.8,3];
+app.post('/api/casino/wheel',authMiddleware,async(req,res)=>{
+  try{
+    const amount=Math.floor(Number(req.body.betAmount));
+    if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});
+    const index=Math.floor(Math.random()*WHEEL_SEGMENTS.length);
+    const multiplier=WHEEL_SEGMENTS[index];
+    const payout=Math.floor(amount*multiplier);
+    const settled=await settleInstantCasinoBet(req.user.id,'wheel',amount,payout,`Wheel: landed on ${multiplier}x`);
+    res.json({index,multiplier,payout,segments:WHEEL_SEGMENTS,...settled});
+  }catch(e){res.status(String(e.message).includes('Insufficient')?400:500).json({error:e.message});}
+});
+
+const DRAGON_COLUMNS={easy:3,medium:4,hard:5};
+function dragonMultiplier(level,columns){return Number((Math.pow(columns*0.97,level)).toFixed(2));}
+function publicDragonState(game){return {difficulty:game.difficulty,columns:game.columns,level:game.level,maxLevels:9,multiplier:dragonMultiplier(game.level,game.columns),potentialPayout:Math.floor(game.betAmount*dragonMultiplier(game.level,game.columns)),betAmount:game.betAmount};}
+app.post('/api/casino/dragon-tower/start',authMiddleware,async(req,res)=>{
+  try{
+    const amount=Math.floor(Number(req.body.betAmount));const difficulty=String(req.body.difficulty||'easy').toLowerCase();const columns=DRAGON_COLUMNS[difficulty];
+    if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});if(!columns)return res.status(400).json({error:'Invalid difficulty'});if(dragonTowerGames.has(req.user.id))return res.status(400).json({error:'Finish your current tower first'});
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);if(toSafeNumber(debit.rowsAffected,0)<1)return res.status(400).json({error:'Insufficient credits'});
+    const game={id:generateId('cdt'),betAmount:amount,difficulty,columns,level:0,safeRows:Array.from({length:9},()=>Math.floor(Math.random()*columns))};dragonTowerGames.set(req.user.id,game);
+    const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({state:publicDragonState(game),newBalance:Math.floor(user.credits)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+app.post('/api/casino/dragon-tower/pick',authMiddleware,async(req,res)=>{
+  try{
+    const game=dragonTowerGames.get(req.user.id);if(!game)return res.status(400).json({error:'No active tower'});const column=Math.floor(Number(req.body.column));if(column<0||column>=game.columns)return res.status(400).json({error:'Invalid tile'});
+    const safeColumn=game.safeRows[game.level];
+    if(column!==safeColumn){dragonTowerGames.delete(req.user.id);const settled=await settleInstantCasinoBetLossOnly(req.user.id,'dragon_tower',game.betAmount,`Dragon Tower: failed on level ${game.level+1}`);return res.json({hitDragon:true,safeColumn,state:{...publicDragonState(game),revealedRow:game.level},profit:-game.betAmount,...settled});}
+    game.level+=1;if(game.level>=9){return res.json(await cashoutDragonTower(req.user.id,game,true));}
+    res.json({hitDragon:false,safeColumn,state:publicDragonState(game)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+async function settleInstantCasinoBetLossOnly(userId,game,amount,description){
+  const betId=generateId(`cb${game.slice(0,2)}`);await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,userId,game,amount,'loss',0,-amount,Date.now()]);await recordTx(userId,-amount,`casino_${game}`,betId,description);invalidateCasinoBetsCache(userId);const user=await db.get('SELECT credits FROM users WHERE id=?',[userId]);return {newBalance:Math.floor(user.credits)};
+}
+async function cashoutDragonTower(userId,game,completed=false){
+  const multiplier=dragonMultiplier(game.level,game.columns),payout=Math.floor(game.betAmount*multiplier),profit=payout-game.betAmount;await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,userId]);const betId=generateId('cbdt');await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,userId,'dragon_tower',game.betAmount,'win',payout,profit,Date.now()]);await recordTx(userId,profit,'casino_dragon_tower',betId,`Dragon Tower: ${completed?'completed':'cashed out'} at ${multiplier}x`);invalidateCasinoBetsCache(userId);dragonTowerGames.delete(userId);const user=await db.get('SELECT credits FROM users WHERE id=?',[userId]);return {cashedOut:true,completed,multiplier,payout,profit,state:publicDragonState(game),newBalance:Math.floor(user.credits)};
+}
+app.post('/api/casino/dragon-tower/cashout',authMiddleware,async(req,res)=>{try{const game=dragonTowerGames.get(req.user.id);if(!game||game.level<1)return res.status(400).json({error:'Reveal a safe tile before cashing out'});res.json(await cashoutDragonTower(req.user.id,game));}catch(e){res.status(500).json({error:e.message});}});
+
+function baccaratValue(card){return ['10','J','Q','K'].includes(card.v)?0:card.v==='A'?1:Number(card.v);}
+function baccaratTotal(cards){return cards.reduce((sum,card)=>sum+baccaratValue(card),0)%10;}
+app.post('/api/casino/baccarat',authMiddleware,async(req,res)=>{
+  try{
+    const amount=Math.floor(Number(req.body.betAmount));const betOn=String(req.body.betOn||'player').toLowerCase();if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});if(!['player','banker','tie'].includes(betOn))return res.status(400).json({error:'Choose Player, Banker, or Tie'});
+    const deck=makeDeck(),player=[deck.pop(),deck.pop()],banker=[deck.pop(),deck.pop()];let pTotal=baccaratTotal(player),bTotal=baccaratTotal(banker),playerThird=null;
+    if(pTotal<8&&bTotal<8){if(pTotal<=5){playerThird=deck.pop();player.push(playerThird);pTotal=baccaratTotal(player);}const third=playerThird?baccaratValue(playerThird):null;const bankerDraw=third===null?bTotal<=5:bTotal<=2||(bTotal===3&&third!==8)||(bTotal===4&&third>=2&&third<=7)||(bTotal===5&&third>=4&&third<=7)||(bTotal===6&&third>=6&&third<=7);if(bankerDraw)banker.push(deck.pop());bTotal=baccaratTotal(banker);}
+    const result=pTotal===bTotal?'tie':pTotal>bTotal?'player':'banker';const multiplier=betOn==='tie'?9:betOn==='banker'?1.95:2;const payout=result===betOn?Math.floor(amount*multiplier):0;const settled=await settleInstantCasinoBet(req.user.id,'baccarat',amount,payout,`Baccarat: ${betOn} bet, ${result} won`);res.json({player,banker,playerTotal:pTotal,bankerTotal:bTotal,result,multiplier,payout,...settled});
+  }catch(e){res.status(String(e.message).includes('Insufficient')?400:500).json({error:e.message});}
+});
+
+function videoPokerResult(hand){
+  const evaluated=evaluatePokerHand(hand),ranks=hand.map(card=>cardRankValue(card.v)).sort((a,b)=>a-b);if(evaluated.label==='Straight Flush'&&ranks[0]===10)return {label:'Royal Flush',multiplier:800};
+  const table={'Straight Flush':50,'Four of a Kind':25,'Full House':9,'Flush':6,'Straight':4,'Three of a Kind':3,'Two Pair':2};if(table[evaluated.label])return {label:evaluated.label,multiplier:table[evaluated.label]};
+  if(evaluated.label==='Pair'){const paired=Object.entries(hand.reduce((acc,card)=>{acc[card.v]=(acc[card.v]||0)+1;return acc;},{})).find(([,count])=>count===2)?.[0];if(paired&&cardRankValue(paired)>=11)return {label:'Jacks or Better',multiplier:1};}
+  return {label:'No Win',multiplier:0};
+}
+app.post('/api/casino/video-poker/deal',authMiddleware,async(req,res)=>{
+  try{const amount=Math.floor(Number(req.body.betAmount));if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});if(videoPokerGames.has(req.user.id))return res.status(400).json({error:'Finish your current hand first'});const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);if(toSafeNumber(debit.rowsAffected,0)<1)return res.status(400).json({error:'Insufficient credits'});const deck=buildDeck52(),hand=Array.from({length:5},()=>deck.pop());videoPokerGames.set(req.user.id,{id:generateId('cvp'),betAmount:amount,deck,hand});const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({hand,newBalance:Math.floor(user.credits)});}catch(e){res.status(500).json({error:e.message});}
+});
+app.post('/api/casino/video-poker/draw',authMiddleware,async(req,res)=>{
+  try{const game=videoPokerGames.get(req.user.id);if(!game)return res.status(400).json({error:'No active hand'});const holds=new Set((Array.isArray(req.body.holds)?req.body.holds:[]).map(Number).filter(i=>i>=0&&i<5));game.hand=game.hand.map((card,index)=>holds.has(index)?card:game.deck.pop());const result=videoPokerResult(game.hand),payout=Math.floor(game.betAmount*result.multiplier),profit=payout-game.betAmount;if(payout)await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);const betId=game.id;await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,req.user.id,'video_poker',game.betAmount,payout?'win':'loss',payout,profit,Date.now()]);await recordTx(req.user.id,profit,'casino_video_poker',betId,`Video Poker: ${result.label}`);invalidateCasinoBetsCache(req.user.id);videoPokerGames.delete(req.user.id);const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({hand:game.hand,...result,payout,profit,newBalance:Math.floor(user.credits)});}catch(e){res.status(500).json({error:e.message});}
 });
 
 app.get('/api/casino/my-bets', authMiddleware, async(req,res)=>{
