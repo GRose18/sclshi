@@ -1393,7 +1393,7 @@
           <div class="panel-title">Credit Management</div>
           <p style="font-size:12px;color:var(--text3);margin-bottom:8px;">Your balance: <strong id="admin-self-credit-balance" style="color:var(--green);">⬡ 0</strong></p>
           <div class="admin-form-row" style="align-items:end;">
-            <div class="form-group" style="margin-bottom:0;"><label>Add credits to my account</label><input type="number" id="admin-self-credits" min="1" max="1000000000" step="1" inputmode="numeric" placeholder="Amount" onkeydown="if(event.key==='Enter')addCreditsToSelf()"></div>
+            <div class="form-group" style="margin-bottom:0;"><label>Add credits to my account</label><input type="text" id="admin-self-credits" inputmode="numeric" pattern="[0-9]*" placeholder="64-bit amount" onkeydown="if(event.key==='Enter')addCreditsToSelf()"></div>
             <button class="btn-admin" id="admin-self-credits-btn" onclick="addCreditsToSelf()">Add to My Balance</button>
           </div>
           <p id="admin-self-credit-status" style="font-size:11px;color:var(--text3);margin-top:7px;"></p>
@@ -2071,7 +2071,11 @@ async function enterApp(){
 function updateTopbar(){
   if(!currentUser)return;
   document.getElementById('topbar-user').textContent=currentUser.name+' · '+currentUser.id;
-  document.getElementById('topbar-credits').textContent=currentUser.credits.toLocaleString();
+  document.getElementById('topbar-credits').textContent=formatLongCredits(currentUser.credits_long??currentUser.credits);
+}
+function formatLongCredits(value){
+  try{return BigInt(String(value??0)).toLocaleString();}
+  catch{return Number(value||0).toLocaleString();}
 }
 window.addEventListener('message',event=>{
   const casinoFrame=document.getElementById('casino-integrated-frame');
@@ -4323,7 +4327,7 @@ async function renderAdminTab(){
     :'';
   document.getElementById('admin-stats').insertAdjacentHTML('beforeend', mailWarning);
   const selfBalance=document.getElementById('admin-self-credit-balance');
-  if(selfBalance) selfBalance.textContent=`⬡ ${Math.floor(Number(currentUser.credits)||0).toLocaleString()}`;
+  if(selfBalance) selfBalance.textContent=`⬡ ${formatLongCredits(currentUser.credits_long??currentUser.credits)}`;
 
   const grosePanel=document.getElementById('grose-only-panel');
   if(currentUser.id==='GROSE'){
@@ -5262,15 +5266,17 @@ async function addCreditsToSelf(){
   const input=document.getElementById('admin-self-credits');
   const status=document.getElementById('admin-self-credit-status');
   const button=document.getElementById('admin-self-credits-btn');
-  const amount=Number(input?.value);
-  if(!Number.isSafeInteger(amount)||amount<1||amount>1000000000){
-    if(status){status.textContent='Enter a whole number from 1 to 1,000,000,000.';status.style.color='var(--red)';}
+  const amountText=String(input?.value||'').trim();
+  let amount;
+  try{amount=BigInt(amountText);}catch{}
+  if(!/^[1-9]\d*$/.test(amountText)||!amount||amount>9223372036854775807n){
+    if(status){status.textContent='Enter a positive signed 64-bit whole number.';status.style.color='var(--red)';}
     return;
   }
   if(button){button.disabled=true;button.textContent='Adding…';}
   if(status){status.textContent='';status.style.color='var(--text3)';}
   try{
-    await api('POST','/admin/self/credits',{amount});
+    await api('POST','/admin/self/credits',{amount:amountText});
     await refreshUser();
     showToast(`Added ⬡${amount.toLocaleString()} to your balance`);
     renderAdminTab();

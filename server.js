@@ -48,6 +48,7 @@ function isMarketBettingClosed(market, now = Date.now()) {
 }
 
 const JWT_SECRET = getBootstrapSecret('JWT_SECRET', 'JWT_SECRET');
+const CREDIT_LONG_MAX = 9223372036854775807n;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const POPUP_TAB_PASSWORD_KEY = 'popup_tab_password_hash';
 const DEFAULT_POPUP_TAB_PASSWORD = getBootstrapSecret('POPUP_TAB_PASSWORD', 'POPUP_TAB_PASSWORD');
@@ -194,7 +195,7 @@ function withSafeCredits(row){
   if(!row) return row;
   if(Object.prototype.hasOwnProperty.call(row,'credits_text')){
     const { credits_text, ...rest } = row;
-    return { ...rest, credits: toSafeNumber(credits_text, 0) };
+    return { ...rest, credits: toSafeNumber(credits_text, 0), credits_long: String(credits_text||'0') };
   }
   return { ...row, credits: toSafeNumber(row.credits, 0) };
 }
@@ -2521,15 +2522,20 @@ app.get('/api/popup/users', authMiddleware, async(req,res)=>{
 });
 app.post('/api/admin/self/credits', authMiddleware, adminOnly, async(req,res)=>{
   try{
-    const amount=Number(req.body.amount);
-    if(!Number.isSafeInteger(amount)||amount<1||amount>1000000000){
-      return res.status(400).json({error:'Amount must be a whole number from 1 to 1,000,000,000'});
-    }
-    const actor=await db.get('SELECT id,name FROM users WHERE id=?',[req.user.id]);
+    const amountText=String(req.body.amount??'').trim();
+    if(!/^[1-9]\d*$/.test(amountText)) return res.status(400).json({error:'Amount must be a positive whole number'});
+    const amount=BigInt(amountText);
+    if(amount>CREDIT_LONG_MAX) return res.status(400).json({error:'Amount exceeds the signed 64-bit credit limit'});
+    const actor=await db.get('SELECT id,name,CAST(CAST(credits AS INTEGER) AS TEXT) AS credits_text FROM users WHERE id=?',[req.user.id]);
     if(!actor) return res.status(404).json({error:'Admin account not found'});
-    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[amount,req.user.id]);
-    await recordTx(req.user.id,amount,'admin_self_grant',null,`${actor.name||actor.id} added ${amount} to their own admin balance`);
-    res.json(await db.get('SELECT id,name,credits FROM users WHERE id=?',[req.user.id]));
+    const currentCredits=BigInt(actor.credits_text||'0');
+    if(currentCredits<0n||amount>CREDIT_LONG_MAX-currentCredits){
+      return res.status(400).json({error:'This addition would exceed the signed 64-bit credit balance'});
+    }
+    const nextCredits=currentCredits+amount;
+    await db.run('UPDATE users SET credits=CAST(? AS INTEGER) WHERE id=?',[nextCredits.toString(),req.user.id]);
+    await recordTx(req.user.id,amount.toString(),'admin_self_grant',null,`${actor.name||actor.id} added ${amountText} to their own admin balance`);
+    res.json({id:actor.id,name:actor.name,credits:toSafeNumber(nextCredits,0),credits_long:nextCredits.toString()});
   }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/users/:id/add-credits', authMiddleware, adminOnly, async(req,res)=>{
