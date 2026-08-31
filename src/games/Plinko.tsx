@@ -9,8 +9,14 @@ import NumericInput from '../components/NumericInput'
 
 type PlinkoResponse={path:number[];slotIndex:number;multiplier:number;payout:number;profit:number;balanceAfterBet:number;newBalance:number}
 
-const edge:Record<Risk,number>={Low:5.6,Medium:130,High:10000}
-function payouts(rows:number,risk:Risk){ return Array.from({length:rows+1},(_,i)=>{const d=Math.abs(i-rows/2)/(rows/2); const top=edge[risk]; const floor=risk==='Low'?0.5:risk==='Medium'?0.3:0.2; return +(floor+(top-floor)*Math.pow(d,risk==='High'?7:risk==='Medium'?5:3)).toFixed(i===0?0:1)}) }
+const profiles:Record<Risk,{floor:number;power:number}>={Low:{floor:0.5,power:2},Medium:{floor:0.3,power:3.5},High:{floor:0.2,power:5}}
+function combination(n:number,k:number){let result=1;for(let i=1;i<=k;i++)result=result*(n-k+i)/i;return result}
+function payouts(rows:number,risk:Risk){
+ const {floor,power}=profiles[risk]
+ const expectation=Array.from({length:rows+1},(_,i)=>combination(rows,i)/2**rows*Math.abs((i-rows/2)/(rows/2))**power).reduce((sum,value)=>sum+value,0)
+ const peak=floor+(0.99-floor)/expectation
+ return Array.from({length:rows+1},(_,i)=>Math.floor((floor+(peak-floor)*Math.abs((i-rows/2)/(rows/2))**power)*100)/100)
+}
 export default function Plinko({onBack}:{onBack:()=>void}){
  const {syncBalance,balance,recordRound}=useCasinoWallet(); const [amount,setAmount]=useState(10); const [rows,setRows]=useState(12); const [risk,setRisk]=useState<Risk>('Medium'); const [ball,setBall]=useState<{x:number;y:number}|null>(null); const [status,setStatus]=useState<'idle'|'locked'>('idle'); const [result,setResult]=useState<string>('Drop a ball to play'); const [roundResult,setRoundResult]=useState<RoundResult|null>(null); const [landingIndex,setLandingIndex]=useState<number|null>(null); const intervalRef=useRef(0); const ballHideRef=useRef(0); const settleRef=useRef(0)
  const bins=useMemo(()=>payouts(rows,risk),[rows,risk]); const pegs=useMemo(()=>Array.from({length:rows},(_,r)=>Array.from({length:r+3},(_,c)=>({x:250+(c-(r+2)/2)*(310/(rows+2)),y:40+r*(315/rows)}))).flat(),[rows])

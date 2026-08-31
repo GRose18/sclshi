@@ -3647,53 +3647,40 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
     const { effective } = await getCasinoConfig(req.user.id);
     const plinkoOdds = effective.plinkoOdds;
 
-    const edge = {low:5.6,medium:130,high:10000};
-    const floor = risk==='low' ? 0.5 : risk==='medium' ? 0.3 : 0.2;
-    const power = risk==='high' ? 7 : risk==='medium' ? 5 : 3;
+    const riskProfile = {
+      low:{floor:0.5,power:2},
+      medium:{floor:0.3,power:3.5},
+      high:{floor:0.2,power:5},
+    }[risk];
+    const targetRtp = 0.99;
+    const shapeExpectation = Array.from({length:rows+1},(_,index)=>{
+      const distance=Math.abs(index-rows/2)/(rows/2);
+      return (combination(rows,index)/Math.pow(2,rows))*Math.pow(distance,riskProfile.power);
+    }).reduce((sum,value)=>sum+value,0);
+    const peak = riskProfile.floor+(targetRtp-riskProfile.floor)/shapeExpectation;
     const multipliers = Array.from({length:rows+1},(_,index)=>{
-      const distance = Math.abs(index-rows/2)/(rows/2);
-      const raw = floor+(edge[risk]-floor)*Math.pow(distance,power);
-      return Number(raw.toFixed(index===0?0:1));
+      const distance=Math.abs(index-rows/2)/(rows/2);
+      const raw=riskProfile.floor+(peak-riskProfile.floor)*Math.pow(distance,riskProfile.power);
+      return Math.floor(raw*100)/100;
     });
-    let slotIndex = 0;
-    if(plinkoOdds<=0){
-      let worstValue = Infinity;
-      const worstIndexes = [];
-      multipliers.forEach((multiplier, idx)=>{
-        if(multiplier < worstValue){
-          worstValue = multiplier;
-          worstIndexes.length = 0;
-          worstIndexes.push(idx);
-        }else if(multiplier === worstValue){
-          worstIndexes.push(idx);
-        }
-      });
-      slotIndex = worstIndexes[Math.floor(Math.random()*worstIndexes.length)];
-    }else if(plinkoOdds>=200){
-      let bestValue = -Infinity;
-      const bestIndexes = [];
-      multipliers.forEach((multiplier, idx)=>{
-        if(multiplier > bestValue){
-          bestValue = multiplier;
-          bestIndexes.length = 0;
-          bestIndexes.push(idx);
-        }else if(multiplier === bestValue){
-          bestIndexes.push(idx);
-        }
-      });
-      slotIndex = bestIndexes[Math.floor(Math.random()*bestIndexes.length)];
+    const baseWeights = Array.from({length:rows+1},(_,index)=>combination(rows,index));
+    const totalBaseWeight = Math.pow(2,rows);
+    const baseRtp = multipliers.reduce((sum,multiplier,index)=>sum+(baseWeights[index]/totalBaseWeight)*multiplier,0);
+    const boundedOdds=clampNumber(plinkoOdds,0,200);
+    const desiredRtp=boundedOdds<=100
+      ?0.8+(boundedOdds/100)*0.19
+      :0.99+((boundedOdds-100)/100)*0.005;
+    const extremeValue=desiredRtp>=baseRtp?Math.max(...multipliers):Math.min(...multipliers);
+    const extremeIndexes=multipliers.map((value,index)=>value===extremeValue?index:-1).filter(index=>index>=0);
+    const extremeChance=extremeValue===baseRtp?0:clampNumber((desiredRtp-baseRtp)/(extremeValue-baseRtp),0,1);
+    let slotIndex=0;
+    if(Math.random()<extremeChance){
+      slotIndex=extremeIndexes[Math.floor(Math.random()*extremeIndexes.length)];
     }else{
-      const baseWeights = Array.from({length:rows+1},(_,index)=>combination(rows,index));
-      const oddsPower = (plinkoOdds - 100) / 50;
-      const weighted = multipliers.map((multiplier, idx)=>baseWeights[idx] * Math.pow(Math.max(multiplier, 0.05), oddsPower));
-      const totalWeight = weighted.reduce((sum, value)=>sum + value, 0);
-      let pick = Math.random() * totalWeight;
-      for(let i=0;i<weighted.length;i++){
-        pick -= weighted[i];
-        if(pick <= 0){
-          slotIndex = i;
-          break;
-        }
+      let pick=Math.random()*totalBaseWeight;
+      for(let i=0;i<baseWeights.length;i++){
+        pick-=baseWeights[i];
+        if(pick<=0){slotIndex=i;break;}
       }
     }
     const path = Array.from({length:rows}, (_, idx)=>idx < slotIndex ? 1 : 0);
