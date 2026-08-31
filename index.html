@@ -4390,9 +4390,9 @@ async function renderAdminTab(){
         <td style="color:var(--text3);font-size:12px;">${esc(u.email)||'—'}</td>
         <td>${u.grade||'—'}</td>
         <td><span class="history-pill" style="background:${u.role==='admin'?'var(--accent-bg)':'var(--bg4)'};color:${u.role==='admin'?'var(--accent)':'var(--text3)'}">${u.role}</span></td>
-        <td style="color:var(--green)">⬡ ${u.credits.toLocaleString()}</td>
+        <td style="color:var(--green)">⬡ ${formatLongCredits(u.credits_long??u.credits)}</td>
         <td><div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
-          <input type="number" id="add-cred-${u.id}" placeholder="amt" style="width:60px;padding:4px 6px;font-size:11px;">
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="add-cred-${u.id}" placeholder="amt" style="width:90px;padding:4px 6px;font-size:11px;">
           <button class="btn-admin btn-sm btn-success" onclick="addCreditsToUser('${u.id}')">Add</button>
           <button class="btn-admin btn-sm btn-danger" onclick="removeCreditsFromUser('${u.id}')">Remove</button>
           ${isGrose?(u.role==='student'
@@ -5336,14 +5336,18 @@ async function sendDigest(){
   }finally{btn.disabled=false;btn.textContent='Send Weekly Digest';}
 }
 async function addCreditsToUser(userId){
-  const amount=parseInt(document.getElementById('add-cred-'+userId).value);if(!amount||amount<=0)return;
-  try{await api('POST','/users/'+userId+'/add-credits',{amount});await refreshUser();renderAdminTab();showToast(`Added ⬡${amount}`);}
+  const amountText=document.getElementById('add-cred-'+userId).value.trim();
+  let amount;try{amount=BigInt(amountText);}catch{}
+  if(!/^[1-9]\d*$/.test(amountText)||!amount||amount>9223372036854775807n){alert('Enter a positive signed 64-bit whole number.');return;}
+  try{await api('POST','/users/'+userId+'/add-credits',{amount:amountText});await refreshUser();renderAdminTab();showToast(`Added ⬡${amount.toLocaleString()}`);}
   catch(e){alert(e.message);}
 }
 async function removeCreditsFromUser(userId){
-  const amount=parseInt(document.getElementById('add-cred-'+userId).value);if(!amount||amount<=0)return;
-  if(!confirm(`Remove ⬡${amount}?`))return;
-  try{await api('POST','/users/'+userId+'/remove-credits',{amount});await refreshUser();renderAdminTab();showToast(`Removed ⬡${amount}`);}
+  const amountText=document.getElementById('add-cred-'+userId).value.trim();
+  let amount;try{amount=BigInt(amountText);}catch{}
+  if(!/^[1-9]\d*$/.test(amountText)||!amount||amount>9223372036854775807n){alert('Enter a positive signed 64-bit whole number.');return;}
+  if(!confirm(`Remove up to ⬡${amount.toLocaleString()}?`))return;
+  try{const result=await api('POST','/users/'+userId+'/remove-credits',{amount:amountText});await refreshUser();renderAdminTab();showToast(`Removed ⬡${formatLongCredits(result.removed??amountText)}`);}
   catch(e){alert(e.message);}
 }
 async function makeAdmin(userId){

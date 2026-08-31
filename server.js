@@ -2540,26 +2540,38 @@ app.post('/api/admin/self/credits', authMiddleware, adminOnly, async(req,res)=>{
 });
 app.post('/api/users/:id/add-credits', authMiddleware, adminOnly, async(req,res)=>{
   try{
-    const {amount}=req.body;
-    if(!amount||amount<=0) return res.status(400).json({error:'Invalid amount'});
+    const amountText=String(req.body.amount??'').trim();
+    if(!/^[1-9]\d*$/.test(amountText)) return res.status(400).json({error:'Amount must be a positive whole number'});
+    const amount=BigInt(amountText);
+    if(amount>CREDIT_LONG_MAX) return res.status(400).json({error:'Amount exceeds the signed 64-bit credit limit'});
     const actor=await db.get('SELECT id,name FROM users WHERE id=?',[req.user.id]);
-    const target=await db.get('SELECT id,name FROM users WHERE id=?',[req.params.id]);
+    const target=await db.get('SELECT id,name,CAST(CAST(credits AS INTEGER) AS TEXT) AS credits_text FROM users WHERE id=?',[req.params.id]);
     if(!target) return res.status(404).json({error:'User not found'});
-    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[amount,req.params.id]);
-    await recordTx(req.params.id,amount,'admin_grant',null,`${actor?.name||actor?.id||req.user.id} added ${amount} to ${target.name||target.id}`);
-    res.json(await db.get('SELECT id,name,credits FROM users WHERE id=?',[req.params.id]));
+    const currentCredits=BigInt(target.credits_text||'0');
+    if(currentCredits<0n||amount>CREDIT_LONG_MAX-currentCredits){
+      return res.status(400).json({error:'This addition would exceed the signed 64-bit credit balance'});
+    }
+    const nextCredits=currentCredits+amount;
+    await db.run('UPDATE users SET credits=CAST(? AS INTEGER) WHERE id=?',[nextCredits.toString(),req.params.id]);
+    await recordTx(req.params.id,amount.toString(),'admin_grant',null,`${actor?.name||actor?.id||req.user.id} added ${amountText} to ${target.name||target.id}`);
+    res.json({id:target.id,name:target.name,credits:toSafeNumber(nextCredits,0),credits_long:nextCredits.toString()});
   }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/users/:id/remove-credits', authMiddleware, adminOnly, async(req,res)=>{
   try{
-    const {amount}=req.body;
-    if(!amount||amount<=0) return res.status(400).json({error:'Invalid amount'});
+    const amountText=String(req.body.amount??'').trim();
+    if(!/^[1-9]\d*$/.test(amountText)) return res.status(400).json({error:'Amount must be a positive whole number'});
+    const amount=BigInt(amountText);
+    if(amount>CREDIT_LONG_MAX) return res.status(400).json({error:'Amount exceeds the signed 64-bit credit limit'});
     const actor=await db.get('SELECT id,name FROM users WHERE id=?',[req.user.id]);
-    const target=await db.get('SELECT id,name FROM users WHERE id=?',[req.params.id]);
+    const target=await db.get('SELECT id,name,CAST(CAST(credits AS INTEGER) AS TEXT) AS credits_text FROM users WHERE id=?',[req.params.id]);
     if(!target) return res.status(404).json({error:'User not found'});
-    await db.run('UPDATE users SET credits=MAX(0,credits-?) WHERE id=?',[amount,req.params.id]);
-    await recordTx(req.params.id,-amount,'admin_deduct',null,`${actor?.name||actor?.id||req.user.id} removed ${amount} from ${target.name||target.id}`);
-    res.json(await db.get('SELECT id,name,credits FROM users WHERE id=?',[req.params.id]));
+    const currentCredits=BigInt(target.credits_text||'0');
+    const removed=amount>currentCredits?currentCredits:amount;
+    const nextCredits=currentCredits-removed;
+    await db.run('UPDATE users SET credits=CAST(? AS INTEGER) WHERE id=?',[nextCredits.toString(),req.params.id]);
+    await recordTx(req.params.id,(-removed).toString(),'admin_deduct',null,`${actor?.name||actor?.id||req.user.id} removed ${removed.toString()} from ${target.name||target.id}`);
+    res.json({id:target.id,name:target.name,credits:toSafeNumber(nextCredits,0),credits_long:nextCredits.toString(),removed:removed.toString()});
   }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/users/:id/make-admin', authMiddleware, adminOnly, async(req,res)=>{
