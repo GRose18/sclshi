@@ -2519,6 +2519,19 @@ app.get('/api/popup/users', authMiddleware, async(req,res)=>{
   if(!(await hasPopupTabAccess(req.user.id))) return res.status(403).json({error:'You do not have Pop-up tab access'});
   res.json(await db.all("SELECT id,name,role FROM users WHERE id!=? AND id!='ADMIN' ORDER BY name ASC",[req.user.id]));
 });
+app.post('/api/admin/self/credits', authMiddleware, adminOnly, async(req,res)=>{
+  try{
+    const amount=Number(req.body.amount);
+    if(!Number.isSafeInteger(amount)||amount<1||amount>1000000000){
+      return res.status(400).json({error:'Amount must be a whole number from 1 to 1,000,000,000'});
+    }
+    const actor=await db.get('SELECT id,name FROM users WHERE id=?',[req.user.id]);
+    if(!actor) return res.status(404).json({error:'Admin account not found'});
+    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[amount,req.user.id]);
+    await recordTx(req.user.id,amount,'admin_self_grant',null,`${actor.name||actor.id} added ${amount} to their own admin balance`);
+    res.json(await db.get('SELECT id,name,credits FROM users WHERE id=?',[req.user.id]));
+  }catch(e){res.status(500).json({error:e.message});}
+});
 app.post('/api/users/:id/add-credits', authMiddleware, adminOnly, async(req,res)=>{
   try{
     const {amount}=req.body;
