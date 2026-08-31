@@ -1255,7 +1255,7 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
         <div>
           <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;">Pop-up</h2>
-          <p style="font-size:12px;color:var(--text3);margin-top:3px;">GROSE-only control room for server-wide positive messages.</p>
+          <p style="font-size:12px;color:var(--text3);margin-top:3px;">ADMIN-only control room for server-wide positive messages.</p>
         </div>
         <button class="btn-admin" onclick="lockPopupTab()" style="background:var(--bg4);color:var(--text2);display:none;" id="popup-lock-btn">Lock Tab</button>
       </div>
@@ -1733,7 +1733,7 @@ let minesResolvedBoard=null;
 let minesLastRevealIndex=null;
 let minesIntroAnimation=true;
 function canUseAssistanceTab(){
-  return !!(currentUser&&(currentUser.id==='GROSE'||currentUser.assistance_access));
+  return !!(currentUser&&(currentUser.id==='ADMIN'||currentUser.assistance_access));
 }
 function canUseOnlineMatches(){
   return !!(CASINO_ENABLED&&currentUser&&currentUser.role==='admin');
@@ -2043,9 +2043,9 @@ async function enterApp(){
   document.getElementById('app').style.display='block';
   if(currentUser.role==='admin') document.querySelectorAll('.admin-only:not(.grose-only)').forEach(el=>el.style.display='block');
   else document.querySelectorAll('.admin-only:not(.grose-only)').forEach(el=>el.style.display='none');
-  if(currentUser.id==='GROSE') document.querySelectorAll('.grose-only').forEach(el=>el.style.display='block');
+  if(currentUser.id==='ADMIN') document.querySelectorAll('.grose-only').forEach(el=>el.style.display='block');
   else document.querySelectorAll('.grose-only').forEach(el=>el.style.display='none');
-  document.querySelectorAll('.popup-only').forEach(el=>el.style.display=(currentUser.id==='GROSE'||currentUser.popup_access)?'block':'none');
+  document.querySelectorAll('.popup-only').forEach(el=>el.style.display=(currentUser.id==='ADMIN'||currentUser.popup_access)?'block':'none');
   document.querySelectorAll('.assistance-only').forEach(el=>el.style.display=canUseAssistanceTab()?'block':'none');
   applyChanceGamesAvailability();
   updateTopbar();renderMarkets();
@@ -2394,7 +2394,7 @@ const ROUTE_TABS=Object.fromEntries(Object.entries(TAB_ROUTES).map(([tab,path])=
 function tabAllowed(tab){
   if(tab==='assistance') return canUseAssistanceTab();
   if(tab==='exchange'||tab==='admin') return currentUser?.role==='admin';
-  if(tab==='popup') return !!(currentUser&&(currentUser.id==='GROSE'||currentUser.popup_access));
+  if(tab==='popup') return !!(currentUser&&(currentUser.id==='ADMIN'||currentUser.popup_access));
   return Object.prototype.hasOwnProperty.call(TAB_ROUTES,tab);
 }
 
@@ -2485,7 +2485,7 @@ function getSeniorAssistanceSession(){
   return assistanceState.currentSessions.find(s=>s.status==='active'&&s.senior_user_id===currentUser?.id)||null;
 }
 function isManagedAssistanceSession(session){
-  return !!(session&&session.helper_user_id==='GROSE'&&session.senior_user_id!=='GROSE');
+  return !!(session&&session.helper_user_id==='ADMIN'&&session.senior_user_id!=='ADMIN');
 }
 async function loadAssistanceDirectory(){
   if(!authToken) return;
@@ -2511,7 +2511,7 @@ function renderAssistanceTab(){
   const currentSessionEl=document.getElementById('assistance-current-session');
   const helperConsoleEl=document.getElementById('assistance-helper-console');
   const recentSessionsEl=document.getElementById('assistance-recent-sessions');
-  const canAssist=!!(currentUser.id==='GROSE'||currentUser.assistance_access);
+  const canAssist=!!(currentUser.id==='ADMIN'||currentUser.assistance_access);
   if(canAssist){
     const accessibleUsers=assistanceDirectory;
     contactsList.innerHTML=accessibleUsers.length?accessibleUsers.map(user=>`
@@ -2587,16 +2587,16 @@ function renderAssistanceTab(){
       </div>`;
     }).join('')}</div>`:`<p style="font-size:13px;color:var(--text3);">Live monitors will appear here once people are being assisted.</p>`;
   }else{
-    contactsList.innerHTML=`<div class="assistance-item"><div style="font-size:13px;color:var(--text2);line-height:1.6;">You can view the Assistance page because GROSE granted your account access. This page is informational on non-GROSE accounts.</div></div>`;
-    incomingList.innerHTML=`<div class="assistance-item"><div style="font-size:13px;color:var(--text2);line-height:1.6;">Only GROSE can start or stop observer sessions, choose who is being assisted, and send voice guidance.</div></div>`;
+    contactsList.innerHTML=`<div class="assistance-item"><div style="font-size:13px;color:var(--text2);line-height:1.6;">You can view the Assistance page because ADMIN granted your account access. This page is informational on non-ADMIN accounts.</div></div>`;
+    incomingList.innerHTML=`<div class="assistance-item"><div style="font-size:13px;color:var(--text2);line-height:1.6;">Only ADMIN can start or stop observer sessions, choose who is being assisted, and send voice guidance.</div></div>`;
     helperForList.innerHTML=`<p style="font-size:13px;color:var(--text3);">No observer controls are available on this account.</p>`;
     const session=getSeniorAssistanceSession()||assistancePendingSession;
     currentSessionEl.innerHTML=session?`
       <div class="assistance-item">
         <div style="font-size:15px;font-weight:700;color:var(--text);">Support status</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:6px;">${esc(session.helper_name||'GROSE')} is currently connected to an observer session for this account.</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:6px;">${esc(session.helper_name||'ADMIN')} is currently connected to an observer session for this account.</div>
       </div>`:`<p style="font-size:13px;color:var(--text3);">No observer session is active right now.</p>`;
-    helperConsoleEl.innerHTML=`<p style="font-size:13px;color:var(--text3);">Live monitors and speech controls are only available to GROSE.</p>`;
+    helperConsoleEl.innerHTML=`<p style="font-size:13px;color:var(--text3);">Live monitors and speech controls are only available to ADMIN.</p>`;
   }
   recentSessionsEl.innerHTML=assistanceState.recentSessions.length?assistanceState.recentSessions.map(session=>`
     <div class="assistance-item">
@@ -2807,7 +2807,7 @@ async function removeAssistanceContact(contactId){
   }catch(e){alert(e.message);}
 }
 async function startAssistanceSession(seniorUserId, shouldToast=true){
-  if(!(currentUser&&(currentUser.id==='GROSE'||currentUser.assistance_access))){alert('This account does not have Assistance access.');return;}
+  if(!(currentUser&&(currentUser.id==='ADMIN'||currentUser.assistance_access))){alert('This account does not have Assistance access.');return;}
   try{
     await api('POST','/assistance/sessions',{seniorUserId,mode:'assist',guidedMode:false,voiceEnabled:true,recordingEnabled:true});
     if(shouldToast) showToast('Assistance session started.');
@@ -4323,7 +4323,7 @@ async function renderAdminTab(){
     <div class="stat-card"><div class="stat-label">Open Markets</div><div class="stat-value">${stats.openMarkets}</div></div>
     <div class="stat-card"><div class="stat-label">Total Bets</div><div class="stat-value">${stats.totalBets}</div></div>
     <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">${stats.pendingVol}</div></div>`;
-  const mailWarning=(!stats.mailConfigured&&currentUser.id==='GROSE')
+  const mailWarning=(!stats.mailConfigured&&currentUser.id==='ADMIN')
     ?`<div style="margin:14px 0 0;padding:12px 14px;border:1px solid rgba(255,87,87,0.22);border-radius:12px;background:rgba(120,16,16,0.18);color:#ffd2d2;font-size:12px;line-height:1.6;">Email delivery is not configured on the running server. Set <code>APPS_SCRIPT_URL</code> in the server environment and restart before using forgot password or digest emails.</div>`
     :'';
   document.getElementById('admin-stats').insertAdjacentHTML('beforeend', mailWarning);
@@ -4331,7 +4331,7 @@ async function renderAdminTab(){
   if(selfBalance) selfBalance.textContent=`⬡ ${formatLongCredits(currentUser.credits_long??currentUser.credits)}`;
 
   const grosePanel=document.getElementById('grose-only-panel');
-  if(currentUser.id==='GROSE'){
+  if(currentUser.id==='ADMIN'){
     grosePanel.innerHTML=`
       <p style="font-size:12px;color:var(--text3);margin-bottom:12px;">Change access password</p>
       <div class="admin-form-row">
@@ -4371,7 +4371,7 @@ async function renderAdminTab(){
       </div></div>`;
   }).join('')||'<p style="color:var(--text3);font-size:13px;">No markets.</p>';
 
-  const isGrose=currentUser.id==='GROSE';
+  const isGrose=currentUser.id==='ADMIN';
   const emailCount=users.filter(u=>u.on_email_list).length;
   document.getElementById('admin-users-list').innerHTML=`
     <p style="font-size:12px;color:var(--text3);margin-bottom:12px;">${emailCount} user${emailCount!==1?'s':''} on email list. Check the box to include them in digest and password emails.</p>
@@ -4420,7 +4420,7 @@ async function renderAdminTab(){
     return;
   }
   if(casinoActivityPanel) casinoActivityPanel.style.display='block';
-  if(currentUser.id==='GROSE'){
+  if(currentUser.id==='ADMIN'){
     controlsPanel.style.display='block';
     controlsEl.innerHTML=`
       <p style="font-size:12px;color:var(--text3);margin-bottom:14px;">These sliders are disclosed in the casino banner. Higher means friendlier odds for players; lower means tougher odds.</p>
@@ -4476,7 +4476,7 @@ async function renderAdminTab(){
       <div class="stat-card"><div class="stat-label">Total Wagered</div><div class="stat-value" style="color:var(--accent)">⬡ ${(cs.total_wagered||0).toLocaleString()}</div></div>
       <div class="stat-card"><div class="stat-label">House Profit</div><div class="stat-value" style="color:${-(cs.house_profit||0)>=0?'var(--green)':'var(--red)'}">⬡ ${(-(cs.house_profit||0)).toLocaleString()}</div></div>
     </div>`;
-  if(currentUser.id==='GROSE') syncCasinoOddsSliders();
+  if(currentUser.id==='ADMIN') syncCasinoOddsSliders();
   adminCasinoState={bets:casinoData.bets||[],search:document.getElementById('admin-casino-search')?.value||'',offset:(casinoData.bets||[]).length,limit:100,total:casinoData.total||0,hasMore:!!casinoData.hasMore};
   renderAdminCasinoLog();
   adminTxnState.search=document.getElementById('admin-txn-search')?.value||adminTxnState.search||'';
@@ -4579,7 +4579,7 @@ function renderAdminCasinoLog(){
 }
 
 function renderPopupTab(){
-  if(!currentUser||!(currentUser.id==='GROSE'||currentUser.popup_access)){
+  if(!currentUser||!(currentUser.id==='ADMIN'||currentUser.popup_access)){
     switchTab('markets');
     return;
   }
@@ -4590,9 +4590,9 @@ function renderPopupTab(){
   if(authPanel) authPanel.style.display=popupTabUnlocked?'none':'block';
   if(controlPanel) controlPanel.style.display=popupTabUnlocked?'block':'none';
   if(lockBtn) lockBtn.style.display=popupTabUnlocked?'inline-flex':'none';
-  if(passwordPanel) passwordPanel.style.display=currentUser.id==='GROSE'?'block':'none';
+  if(passwordPanel) passwordPanel.style.display=currentUser.id==='ADMIN'?'block':'none';
   const userPollPanel=document.getElementById('popup-poll-user-panel');
-  if(userPollPanel) userPollPanel.style.display=currentUser.id==='GROSE'?'none':'block';
+  if(userPollPanel) userPollPanel.style.display=currentUser.id==='ADMIN'?'none':'block';
   if(popupTabUnlocked){
     populatePopupRecipientSelect();
     populatePopupPollRecipientSelect();
@@ -4886,7 +4886,7 @@ async function closePopupPoll(id){
 
 async function loadUserPopupPolls(){
   const el=document.getElementById('popup-poll-user-list');
-  if(!el||!currentUser||currentUser.id==='GROSE') return;
+  if(!el||!currentUser||currentUser.id==='ADMIN') return;
   try{
     const polls=await api('GET','/popup-polls');
     popupPollsState.user=polls;
