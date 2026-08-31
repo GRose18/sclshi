@@ -2084,6 +2084,7 @@ window.addEventListener('message',event=>{
   const credits=Math.max(0,Math.floor(Number(event.data.credits)));
   if(!Number.isFinite(credits))return;
   currentUser.credits=credits;
+  currentUser.credits_long=String(credits);
   updateTopbar();
 });
 async function refreshUser(){currentUser=await api('GET','/me');applySchoolTheme(currentUser.school);updateTopbar();}
