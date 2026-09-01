@@ -602,6 +602,7 @@ async function seedIfEmpty() {
   await db.run(`INSERT INTO markets (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     ['m2','Will the spring showcase open on time?','School','open','2026-05-15',0,0,100,0,Date.now(),'binary']);
   await db.run("INSERT OR IGNORE INTO settings (key,value) VALUES ('volunteer_rate','100')");
+  await db.run("INSERT OR IGNORE INTO settings (key,value) VALUES ('site_style','classic')");
   await db.run("INSERT OR IGNORE INTO settings (key,value) VALUES ('access_password',?)",[defaultAccessPassword]);
   await db.run("INSERT OR IGNORE INTO settings (key,value) VALUES ('casino_dice_odds','100')");
   await db.run("INSERT OR IGNORE INTO settings (key,value) VALUES ('casino_plinko_odds','100')");
@@ -1581,6 +1582,23 @@ async function adminOnly(req,res,next) {
   if (!user||user.role!=='admin') return res.status(403).json({error:'Admin only'});
   next();
 }
+
+app.get('/api/site-style', async(req,res)=>{
+  try{
+    const row=await db.get("SELECT value FROM settings WHERE key='site_style'");
+    const style=['classic','terminal'].includes(row?.value)?row.value:'classic';
+    res.json({style});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/admin/site-style', authMiddleware, adminOnly, async(req,res)=>{
+  try{
+    const style=String(req.body.style||'').trim().toLowerCase();
+    if(!['classic','terminal'].includes(style)) return res.status(400).json({error:'Unknown site style'});
+    await db.run("INSERT OR REPLACE INTO settings (key,value) VALUES ('site_style',?)",[style]);
+    res.json({style});
+  }catch(e){res.status(500).json({error:e.message});}
+});
 async function requireAssistanceAccess(req,res,next){
   if(!(await hasAssistanceAccess(req.user.id))) return res.status(403).json({error:'You do not have Assistance access'});
   next();
