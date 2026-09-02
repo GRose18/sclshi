@@ -2612,15 +2612,29 @@ app.post('/api/users/:id/remove-credits', authMiddleware, adminOnly, async(req,r
   }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/users/:id/make-admin', authMiddleware, adminOnly, async(req,res)=>{
-  if(!isGrose(req)) return res.status(403).json({error:'Only the primary admin can promote users'});
-  await db.run("UPDATE users SET role='admin' WHERE id=?",[req.params.id]);
-  res.json({success:true});
+  try{
+    if(!isGrose(req)) return res.status(403).json({error:'Only the primary ADMIN account can promote users'});
+    const target=await db.get('SELECT id,name,role FROM users WHERE id=?',[req.params.id]);
+    if(!target) return res.status(404).json({error:'User not found'});
+    if(target.role==='admin') return res.status(400).json({error:'This user is already an administrator'});
+    await db.run("UPDATE users SET role='admin' WHERE id=?",[target.id]);
+    await recordTx(target.id,0,'admin_role_granted',null,`Primary ADMIN granted administrator capabilities to ${target.name||target.id}`);
+    await createNotification(target.id,'admin_role','Administrator access granted','The primary ADMIN account granted you administrator capabilities.','/admin');
+    res.json({success:true,user:{id:target.id,name:target.name,role:'admin'}});
+  }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/users/:id/make-student', authMiddleware, adminOnly, async(req,res)=>{
-  if(!isGrose(req)) return res.status(403).json({error:'Only the primary admin can demote users'});
-  if(req.params.id==='ADMIN') return res.status(400).json({error:'Cannot demote primary admin'});
-  await db.run("UPDATE users SET role='student' WHERE id=?",[req.params.id]);
-  res.json({success:true});
+  try{
+    if(!isGrose(req)) return res.status(403).json({error:'Only the primary ADMIN account can remove administrator access'});
+    if(req.params.id==='ADMIN') return res.status(400).json({error:'Cannot demote the primary ADMIN account'});
+    const target=await db.get('SELECT id,name,role FROM users WHERE id=?',[req.params.id]);
+    if(!target) return res.status(404).json({error:'User not found'});
+    if(target.role!=='admin') return res.status(400).json({error:'This user is not an administrator'});
+    await db.run("UPDATE users SET role='student' WHERE id=?",[target.id]);
+    await recordTx(target.id,0,'admin_role_removed',null,`Primary ADMIN removed administrator capabilities from ${target.name||target.id}`);
+    await createNotification(target.id,'admin_role','Administrator access removed','The primary ADMIN account removed your administrator capabilities.','/markets');
+    res.json({success:true,user:{id:target.id,name:target.name,role:'student'}});
+  }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/users/:id/toggle-email-list', authMiddleware, adminOnly, async(req,res)=>{
   if(!isGrose(req)) return res.status(403).json({error:'Only the primary admin can manage the email list'});
