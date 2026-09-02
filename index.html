@@ -1422,6 +1422,21 @@
           <span id="admin-site-style-status" style="font-size:11px;color:var(--text3);"></span>
         </div>
       </div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div class="panel-title" style="margin-bottom:4px;">Kalshi Market Link</div>
+            <p style="font-size:12px;color:var(--text3);margin:0;">Import the question, close time, and final result. Sclshi student bets remain the only input to Sclshi prices.</p>
+          </div>
+          <button class="btn-admin btn-sm" id="kalshi-sync-btn" onclick="syncKalshiMarketsNow()">Sync Linked Markets</button>
+        </div>
+        <div class="admin-form-row" style="align-items:end;margin-top:14px;">
+          <div class="form-group" style="flex:1;margin-bottom:0;"><label>Kalshi market ticker</label><input id="kalshi-market-ticker" type="text" placeholder="Example: KX..." autocomplete="off" onkeydown="if(event.key==='Enter')previewKalshiMarket()"></div>
+          <button class="btn-admin" id="kalshi-preview-btn" onclick="previewKalshiMarket()">Preview Import</button>
+        </div>
+        <div id="kalshi-import-preview" style="margin-top:14px;"></div>
+        <div id="kalshi-link-status" style="font-size:11px;color:var(--text3);margin-top:10px;">Loading linked markets…</div>
+      </div>
       <div class="admin-grid">
         <div class="panel">
           <div class="panel-title">Create Market</div>
@@ -3419,6 +3434,7 @@ async function renderMarkets(){
     else{const yp=getYesPercent(m),np=100-yp;oddsHtml=`<div class="market-odds"><div class="odds-bar-wrap"><div class="odds-label"><span style="color:var(--green)">YES</span><span style="color:var(--green)">${yp}%</span></div><div class="odds-bar"><div class="odds-fill-yes" style="width:${yp}%"></div></div></div><div class="odds-bar-wrap"><div class="odds-label"><span style="color:var(--red)">NO</span><span style="color:var(--red)">${np}%</span></div><div class="odds-bar"><div class="odds-fill-no" style="width:${np}%"></div></div></div></div>`;}
     return `<div class="market-card ${bettingOpen?'':'resolved'}" onclick="${bettingOpen?`openBetModal('${m.id}')`:'' }">
       ${isOU?`<span class="market-type-badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-dim);">Over/Under</span>`:''}
+      ${m.source==='kalshi'?`<span class="market-type-badge" style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim);${isOU?'margin-left:6px;':''}">Outcome linked</span>`:''}
       <div class="market-category">${m.category}</div>
       <div class="market-title">${esc(m.question)}</div>
       ${isOU?`<div class="market-line">Line: ${m.line}</div>`:''}
@@ -4415,6 +4431,7 @@ async function pollResolutions(){
 async function renderAdminTab(){
   if(!currentUser||currentUser.role!=='admin')return;
   renderSiteStyleControls();
+  loadKalshiLinkStatus();
   const themeSelect=document.getElementById('admin-theme-preview');
   const selectedTheme=adminThemePreviewSchool||currentUser.school;
   if(themeSelect){
@@ -4472,7 +4489,7 @@ async function renderAdminTab(){
     return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
       <div style="flex:1;min-width:200px;">
         <div style="font-size:13px;font-weight:600;color:var(--text)">${esc(m.question)}${isOU?` <span style="color:var(--gold);font-size:11px;">(Line: ${m.line})</span>`:''}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:3px;">${m.category} · ${pctDisplay} · Pool ⬡${m.pool||0} · ${adminStatus} · Bets close ${formatMarketCloseDate(m.close_date)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px;">${m.category} · ${pctDisplay} · Pool ⬡${m.pool||0} · ${adminStatus} · Bets close ${formatMarketCloseDate(m.close_date)}${m.source==='kalshi'?` · Kalshi ${esc(m.source_market_id||'')} (${esc(m.source_status||'pending')})`:''}</div>
         ${['open','closed'].includes(m.status)?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
           <input type="datetime-local" id="close-date-${m.id}" value="${formatMarketCloseInputValue(m.close_date)}" style="padding:6px 8px;font-size:12px;background:var(--bg4);border:1px solid var(--border-hi);border-radius:10px;color:var(--text);font-family:'Inter',sans-serif;">
           <button class="btn-admin btn-sm" style="background:rgba(124,106,247,0.14);border:1px solid rgba(124,106,247,0.32);color:var(--accent)" onclick="updateMarketCloseDate('${m.id}')">Update Close Time</button>
@@ -5330,6 +5347,73 @@ window.addEventListener('popstate',()=>{
 });
 
 function toggleLineInput(){document.getElementById('line-input-group').style.display=document.getElementById('new-market-type').value==='overunder'?'block':'none';}
+let pendingKalshiImport=null;
+async function previewKalshiMarket(){
+  const tickerInput=document.getElementById('kalshi-market-ticker');
+  const preview=document.getElementById('kalshi-import-preview');
+  const button=document.getElementById('kalshi-preview-btn');
+  const ticker=tickerInput?.value.trim().toUpperCase();
+  if(!ticker){alert('Enter the Kalshi market ticker first.');return;}
+  button.disabled=true;button.textContent='Loading…';
+  preview.innerHTML='<div class="loading">Fetching market metadata…</div>';
+  try{
+    pendingKalshiImport=await api('GET',`/admin/kalshi/preview/${encodeURIComponent(ticker)}`);
+    const m=pendingKalshiImport;
+    preview.innerHTML=`
+      <div style="padding:14px;border:1px solid var(--border-hi);border-radius:12px;background:var(--bg3);">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <span class="status-tag status-open">KALSHI LINK</span>
+          <strong style="font-size:12px;color:var(--text2);">${esc(m.ticker)}</strong>
+          <span style="font-size:11px;color:var(--text3);">${esc(m.status)} · closes ${formatMarketCloseDate(m.closeDate)}</span>
+        </div>
+        <div class="form-group"><label>Sclshi question</label><input id="kalshi-import-question" value="${esc(m.question)}" maxlength="500"></div>
+        <div class="form-group" style="max-width:260px;"><label>Sclshi category</label><select id="kalshi-import-category">
+          <option ${String(m.category).toLowerCase()==='sports'?'selected':''}>Sports</option><option>School</option><option>Fun</option><option ${String(m.category).toLowerCase()!=='sports'?'selected':''}>Current Events</option>
+        </select></div>
+        ${m.rules?`<p style="font-size:11px;color:var(--text3);line-height:1.55;margin-bottom:12px;"><strong>Resolution rule:</strong> ${esc(m.rules)}</p>`:''}
+        <p style="font-size:11px;color:var(--text3);margin-bottom:12px;">No Kalshi prices, USD volume, or outside wagers will be copied.</p>
+        <button class="btn-admin" id="kalshi-import-btn" onclick="importKalshiMarket()">Create Linked Sclshi Market</button>
+      </div>`;
+  }catch(error){pendingKalshiImport=null;preview.innerHTML=`<div class="notif error">${esc(error.message)}</div>`;}
+  finally{button.disabled=false;button.textContent='Preview Import';}
+}
+async function importKalshiMarket(){
+  if(!pendingKalshiImport)return;
+  const button=document.getElementById('kalshi-import-btn');
+  const question=document.getElementById('kalshi-import-question')?.value.trim();
+  const category=document.getElementById('kalshi-import-category')?.value;
+  if(!question){alert('Enter a Sclshi question.');return;}
+  button.disabled=true;button.textContent='Importing…';
+  try{
+    await api('POST','/admin/kalshi/import',{ticker:pendingKalshiImport.ticker,question,category});
+    pendingKalshiImport=null;
+    document.getElementById('kalshi-market-ticker').value='';
+    document.getElementById('kalshi-import-preview').innerHTML='';
+    showToast('Linked market created. Student bets now set its Sclshi price.');
+    renderAdminTab();
+  }catch(error){alert(error.message);button.disabled=false;button.textContent='Create Linked Sclshi Market';}
+}
+async function loadKalshiLinkStatus(){
+  const el=document.getElementById('kalshi-link-status');
+  if(!el)return;
+  try{
+    const data=await api('GET','/admin/kalshi/status');
+    const linked=data.linked||[];
+    const last=data.lastSyncAt?new Date(data.lastSyncAt).toLocaleString():'Not synced yet';
+    el.textContent=`${linked.length} linked market${linked.length===1?'':'s'} · Last sync: ${last} · Automatic sync every 5 minutes`;
+  }catch(error){el.textContent=`Kalshi status unavailable: ${error.message}`;}
+}
+async function syncKalshiMarketsNow(){
+  const button=document.getElementById('kalshi-sync-btn');
+  button.disabled=true;button.textContent='Syncing…';
+  try{
+    const result=await api('POST','/admin/kalshi/sync',{}, {}, 30000);
+    showToast(`Kalshi sync checked ${result.checked||0}; closed ${result.closed||0}; resolved ${result.resolved||0}.`);
+    await loadKalshiLinkStatus();
+    renderAdminTab();
+  }catch(error){alert(error.message);}
+  finally{button.disabled=false;button.textContent='Sync Linked Markets';}
+}
 async function createMarket(){
   const question=document.getElementById('new-market-q').value.trim();
   const category=document.getElementById('new-market-cat').value;

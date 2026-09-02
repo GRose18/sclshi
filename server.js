@@ -84,6 +84,10 @@ const EXCHANGE_INTEREST_PERCENT = 5;
 const EXCHANGE_MIN_TERM_DAYS = 1;
 const EXCHANGE_MAX_TERM_DAYS = 30;
 const EXCHANGE_MIN_ACCOUNT_AGE_MS = 1000 * 60 * 60 * 24 * 10;
+const KALSHI_API_BASE = 'https://external-api.kalshi.com/trade-api/v2';
+const KALSHI_API_FALLBACK = 'https://api.elections.kalshi.com/trade-api/v2';
+const KALSHI_SYNC_INTERVAL_MS = 1000 * 60 * 5;
+let kalshiSyncRunning = false;
 const ALLOWED_SCHOOLS = [
   'The Emery/Weiner School',
   'Episcopal High School - Houston/Bellaire',
@@ -280,7 +284,10 @@ async function initDB() {
       yes_shares REAL DEFAULT 0, no_shares REAL DEFAULT 0,
       b_param REAL DEFAULT 100, pool INTEGER DEFAULT 0, created_at INTEGER,
       market_type TEXT DEFAULT 'binary', line REAL DEFAULT NULL,
-      over_shares REAL DEFAULT 0, under_shares REAL DEFAULT 0
+      over_shares REAL DEFAULT 0, under_shares REAL DEFAULT 0,
+      source TEXT DEFAULT NULL, source_market_id TEXT DEFAULT NULL,
+      source_event_id TEXT DEFAULT NULL, source_status TEXT DEFAULT NULL,
+      source_updated_at INTEGER DEFAULT NULL
     );
     CREATE TABLE IF NOT EXISTS bets (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, market_id TEXT NOT NULL,
@@ -501,6 +508,11 @@ async function initDB() {
     await db.run("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL").catch(()=>{});
     await db.run("ALTER TABLE pending_registrations ADD COLUMN school TEXT DEFAULT 'SCLSHI'").catch(()=>{});
     await db.run("ALTER TABLE pending_registrations ADD COLUMN phone TEXT DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE markets ADD COLUMN source TEXT DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE markets ADD COLUMN source_market_id TEXT DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE markets ADD COLUMN source_event_id TEXT DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE markets ADD COLUMN source_status TEXT DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE markets ADD COLUMN source_updated_at INTEGER DEFAULT NULL").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN rave_enabled INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN alert_enabled INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN alert_text TEXT DEFAULT ''").catch(()=>{});
@@ -510,6 +522,7 @@ async function initDB() {
     await db.run("UPDATE pending_registrations SET school='SCLSHI' WHERE school IS NULL OR TRIM(school)=''").catch(()=>{});
     await db.exec(`
       CREATE INDEX IF NOT EXISTS idx_markets_status_created_at ON markets(status, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_markets_source_market ON markets(source, source_market_id) WHERE source_market_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_bets_user_status_timestamp ON bets(user_id, status, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_bets_status_timestamp ON bets(status, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_transactions_user_timestamp ON transactions(user_id, timestamp DESC);
@@ -2677,6 +2690,146 @@ app.get('/api/users/:id/profile', authMiddleware, async(req,res)=>{
 });
 
 // ── MARKETS ──
+function normalizeKalshiTicker(value){
+  const ticker=String(value||'').trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9._-]{1,199}$/.test(ticker)?ticker:null;
+}
+function kalshiQuestion(market){
+  return String(market?.title||market?.subtitle||market?.yes_sub_title||market?.ticker||'').trim().slice(0,500);
+}
+function kalshiSafeMarket(market, event=null){
+  return {
+    ticker:String(market?.ticker||''),
+    eventTicker:String(market?.event_ticker||''),
+    question:kalshiQuestion(market),
+    subtitle:String(market?.subtitle||''),
+    yesLabel:String(market?.yes_sub_title||'Yes'),
+    noLabel:String(market?.no_sub_title||'No'),
+    category:String(event?.category||'Current Events'),
+    closeDate:normalizeCloseDate(market?.close_time),
+    status:String(market?.status||''),
+    result:['yes','no'].includes(String(market?.result||'').toLowerCase())?String(market.result).toLowerCase():null,
+    rules:String(market?.rules_primary||'').slice(0,2000),
+  };
+}
+async function fetchKalshiJson(pathname){
+  const request=base=>fetch(`${base}${pathname}`,{
+    headers:{Accept:'application/json','User-Agent':'Sclshi/1.0'},signal:AbortSignal.timeout(10000),
+  });
+  let response=await request(process.env.KALSHI_API_BASE||KALSHI_API_BASE);
+  if(response.status===403&&!process.env.KALSHI_API_BASE) response=await request(KALSHI_API_FALLBACK);
+  if(!response.ok) throw new Error(response.status===404?'Kalshi market not found':`Kalshi returned ${response.status}`);
+  return response.json();
+}
+async function fetchKalshiMarket(ticker,{includeEvent=false}={}){
+  const safeTicker=normalizeKalshiTicker(ticker);
+  if(!safeTicker) throw new Error('Enter a valid Kalshi market ticker');
+  const data=await fetchKalshiJson(`/markets/${encodeURIComponent(safeTicker)}`);
+  const market=data.market;
+  if(!market?.ticker) throw new Error('Kalshi returned an invalid market');
+  let event=null;
+  if(includeEvent&&market.event_ticker){
+    try{event=(await fetchKalshiJson(`/events/${encodeURIComponent(market.event_ticker)}`)).event||null;}catch{}
+  }
+  return {market,event};
+}
+async function settleBinaryMarket(market,outcome){
+  if(!market||!['open','closed'].includes(market.status)) throw new Error('Market is already resolved');
+  if(!['YES','NO'].includes(outcome)) throw new Error('Bad outcome');
+  await db.run('UPDATE markets SET status=? WHERE id=?',[outcome==='YES'?'resolved-yes':'resolved-no',market.id]);
+  const wins=await db.all("SELECT * FROM bets WHERE market_id=? AND side=? AND status='active'",[market.id,outcome]);
+  const total=wins.reduce((sum,bet)=>sum+Number(bet.amount||0),0);
+  const paidWins=[];
+  for(const bet of wins){
+    const payout=total>0?Math.round((Number(bet.amount)/total)*Number(market.pool||0)):0;
+    await db.run("UPDATE bets SET status='won',payout=? WHERE id=?",[payout,bet.id]);
+    await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,bet.user_id]);
+    await recordTx(bet.user_id,payout,'bet_won',bet.id,`Won: ${market.question}`);
+    await createNotification(bet.user_id,'bet_win','Bet Won',`${market.question} resolved ${outcome}. You won ⬡${payout}.`,'portfolio');
+    paidWins.push({id:bet.id,user_id:bet.user_id,amount:bet.amount,payout});
+  }
+  await db.run("UPDATE bets SET status='lost' WHERE market_id=? AND side!=? AND status='active'",[market.id,outcome]);
+  bumpBetsSnapshotVersion();
+  return {success:true,outcome,pool:market.pool,wins:paidWins};
+}
+async function syncKalshiMarkets(){
+  if(kalshiSyncRunning) return {skipped:true,reason:'Sync already running'};
+  kalshiSyncRunning=true;
+  const summary={checked:0,updated:0,closed:0,reopened:0,resolved:0,errors:[]};
+  try{
+    const linked=await db.all("SELECT * FROM markets WHERE source='kalshi' AND source_market_id IS NOT NULL AND status NOT LIKE 'resolved-%'");
+    for(const local of linked){
+      summary.checked++;
+      try{
+        const {market:remote}=await fetchKalshiMarket(local.source_market_id);
+        const remoteStatus=String(remote.status||'').toLowerCase();
+        const remoteResult=String(remote.result||'').toLowerCase();
+        const closeDate=normalizeCloseDate(remote.close_time)||local.close_date;
+        if(remoteStatus==='finalized'&&['yes','no'].includes(remoteResult)){
+          await db.run('UPDATE markets SET close_date=?,source_status=?,source_updated_at=? WHERE id=?',[closeDate,remoteStatus,Date.now(),local.id]);
+          await settleBinaryMarket({...local,close_date:closeDate},remoteResult.toUpperCase());
+          summary.resolved++;summary.updated++;
+          continue;
+        }
+        const shouldClose=['inactive','closed','determined','disputed','amended','finalized'].includes(remoteStatus)
+          ||(closeDate&&Date.parse(closeDate)<=Date.now());
+        const nextStatus=shouldClose?'closed':'open';
+        if(local.status!==nextStatus){
+          if(nextStatus==='closed') summary.closed++; else summary.reopened++;
+        }
+        await db.run('UPDATE markets SET status=?,close_date=?,source_status=?,source_updated_at=? WHERE id=?',[nextStatus,closeDate,remoteStatus,Date.now(),local.id]);
+        summary.updated++;
+      }catch(error){summary.errors.push({ticker:local.source_market_id,error:error.message});}
+    }
+    if(summary.updated) bumpBetsSnapshotVersion();
+    return summary;
+  }finally{kalshiSyncRunning=false;}
+}
+
+app.get('/api/admin/kalshi/preview/:ticker',authMiddleware,adminOnly,async(req,res)=>{
+  try{
+    const {market,event}=await fetchKalshiMarket(req.params.ticker,{includeEvent:true});
+    res.json(kalshiSafeMarket(market,event));
+  }catch(error){res.status(error.message.includes('not found')?404:502).json({error:error.message});}
+});
+app.post('/api/admin/kalshi/import',authMiddleware,adminOnly,async(req,res)=>{
+  try{
+    const ticker=normalizeKalshiTicker(req.body.ticker);
+    if(!ticker) return res.status(400).json({error:'Enter a valid Kalshi market ticker'});
+    const duplicate=await db.get("SELECT id FROM markets WHERE source='kalshi' AND source_market_id=?",[ticker]);
+    if(duplicate) return res.status(409).json({error:'That Kalshi market is already linked to Sclshi',marketId:duplicate.id});
+    const {market,event}=await fetchKalshiMarket(ticker,{includeEvent:true});
+    if(String(market.market_type||'binary').toLowerCase()!=='binary') return res.status(400).json({error:'Only binary YES/NO Kalshi markets can be imported'});
+    const safe=kalshiSafeMarket(market,event);
+    if(!safe.closeDate) return res.status(400).json({error:'Kalshi did not provide a valid close time'});
+    if(['finalized'].includes(safe.status)) return res.status(400).json({error:'This Kalshi market is already finalized'});
+    const question=String(req.body.question||safe.question).trim().slice(0,500);
+    if(!question) return res.status(400).json({error:'Market question is required'});
+    const allowedCategories=['Sports','School','Fun','Current Events'];
+    const requestedCategory=String(req.body.category||'');
+    const category=allowedCategories.includes(requestedCategory)
+      ?requestedCategory
+      :(String(safe.category).toLowerCase()==='sports'?'Sports':'Current Events');
+    const remoteStatus=String(market.status||'').toLowerCase();
+    const status=(remoteStatus==='active'&&Date.parse(safe.closeDate)>Date.now())?'open':'closed';
+    const id=generateId('m');
+    await db.run(`INSERT INTO markets
+      (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,source,source_market_id,source_event_id,source_status,source_updated_at)
+      VALUES (?,?,?,?,?,0,0,100,0,?,'binary','kalshi',?,?,?,?)`,
+      [id,question,category,status,safe.closeDate,Date.now(),safe.ticker,safe.eventTicker,safe.status,Date.now()]);
+    bumpBetsSnapshotVersion();
+    res.status(201).json(await db.get('SELECT * FROM markets WHERE id=?',[id]));
+  }catch(error){res.status(error.message.includes('not found')?404:502).json({error:error.message});}
+});
+app.post('/api/admin/kalshi/sync',authMiddleware,adminOnly,async(req,res)=>{
+  try{res.json(await syncKalshiMarkets());}
+  catch(error){res.status(500).json({error:error.message});}
+});
+app.get('/api/admin/kalshi/status',authMiddleware,adminOnly,async(req,res)=>{
+  const linked=await db.all("SELECT id,question,status,close_date,source_market_id,source_status,source_updated_at FROM markets WHERE source='kalshi' ORDER BY created_at DESC");
+  res.json({linked,lastSyncAt:linked.reduce((latest,item)=>Math.max(latest,Number(item.source_updated_at||0)),0),syncing:kalshiSyncRunning});
+});
+
 app.get('/api/markets', authMiddleware, async(req,res)=>{
   const {category}=req.query;
   res.json(category
@@ -2711,20 +2864,9 @@ app.post('/api/markets/:id/resolve', authMiddleware, adminOnly, async(req,res)=>
     const {outcome}=req.body;
     if(!['YES','NO'].includes(outcome)) return res.status(400).json({error:'Bad outcome'});
     const m=await db.get('SELECT * FROM markets WHERE id=?',[req.params.id]);
-    if(!m||!['open','closed'].includes(m.status)) return res.status(400).json({error:'Market is already resolved'});
-    await db.run('UPDATE markets SET status=? WHERE id=?',[outcome==='YES'?'resolved-yes':'resolved-no',m.id]);
-    const wins=await db.all("SELECT * FROM bets WHERE market_id=? AND side=? AND status='active'",[m.id,outcome]);
-    const total=wins.reduce((s,b)=>s+b.amount,0);
-    for(const b of wins){
-      const pay=total>0?Math.round((b.amount/total)*m.pool):0;
-      await db.run("UPDATE bets SET status='won',payout=? WHERE id=?",[pay,b.id]);
-      await db.run('UPDATE users SET credits=credits+? WHERE id=?',[pay,b.user_id]);
-      await recordTx(b.user_id,pay,'bet_won',b.id,`Won: ${m.question}`);
-      await createNotification(b.user_id,'bet_win','Bet Won',`${m.question} resolved ${outcome}. You won ⬡${pay}.`,'portfolio');
-    }
-    await db.run("UPDATE bets SET status='lost' WHERE market_id=? AND side!=? AND status='active'",[m.id,outcome]);
-    bumpBetsSnapshotVersion();
-    res.json({success:true,outcome,pool:m.pool,wins:wins.map(b=>({id:b.id,user_id:b.user_id,amount:b.amount,payout:Math.round((b.amount/total)*m.pool)}))});
+    if(!m) return res.status(404).json({error:'Market not found'});
+    if(!['open','closed'].includes(m.status)) return res.status(400).json({error:'Market is already resolved'});
+    res.json(await settleBinaryMarket(m,outcome));
   }catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/markets/:id/resolve-overunder', authMiddleware, adminOnly, async(req,res)=>{
@@ -4317,6 +4459,9 @@ app.use((err, req, res, next) => {
 
 initDB().then(()=>{
   startCrashEngine();
+  const kalshiTimer=setInterval(()=>syncKalshiMarkets().catch(error=>console.error('[kalshi-sync]',error.message)),KALSHI_SYNC_INTERVAL_MS);
+  kalshiTimer.unref?.();
+  setTimeout(()=>syncKalshiMarkets().catch(error=>console.error('[kalshi-sync]',error.message)),5000).unref?.();
   httpServer.listen(PORT,()=>{
     console.log(`\n🚀 Sclshi Markets running at http://localhost:${PORT}\n`);
   });
