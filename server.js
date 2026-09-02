@@ -88,6 +88,7 @@ const KALSHI_API_BASE = 'https://external-api.kalshi.com/trade-api/v2';
 const KALSHI_API_FALLBACK = 'https://api.elections.kalshi.com/trade-api/v2';
 const KALSHI_SYNC_INTERVAL_MS = 1000 * 60 * 5;
 let kalshiSyncRunning = false;
+const kalshiEventCache = new Map();
 const ALLOWED_SCHOOLS = [
   'The Emery/Weiner School',
   'Episcopal High School - Houston/Bellaire',
@@ -2694,14 +2695,20 @@ function normalizeKalshiTicker(value){
   const ticker=String(value||'').trim().toUpperCase();
   return /^[A-Z0-9][A-Z0-9._-]{1,199}$/.test(ticker)?ticker:null;
 }
-function kalshiQuestion(market){
-  return String(market?.title||market?.subtitle||market?.yes_sub_title||market?.ticker||'').trim().slice(0,500);
+function kalshiQuestion(market,event=null){
+  const marketTitle=String(market?.title||market?.subtitle||market?.yes_sub_title||market?.ticker||'').trim();
+  const eventTitle=String(event?.title||event?.sub_title||'').trim();
+  if(!eventTitle) return marketTitle.slice(0,500);
+  const normalizedMarket=marketTitle.toLowerCase();
+  const normalizedEvent=eventTitle.toLowerCase();
+  if(normalizedMarket.includes(normalizedEvent)||normalizedEvent.includes(normalizedMarket)) return (marketTitle||eventTitle).slice(0,500);
+  return `${eventTitle} — ${marketTitle}`.slice(0,500);
 }
 function kalshiSafeMarket(market, event=null){
   return {
     ticker:String(market?.ticker||''),
     eventTicker:String(market?.event_ticker||''),
-    question:kalshiQuestion(market),
+    question:kalshiQuestion(market,event),
     subtitle:String(market?.subtitle||''),
     yesLabel:String(market?.yes_sub_title||'Yes'),
     noLabel:String(market?.no_sub_title||'No'),
@@ -2729,9 +2736,18 @@ async function fetchKalshiMarket(ticker,{includeEvent=false}={}){
   if(!market?.ticker) throw new Error('Kalshi returned an invalid market');
   let event=null;
   if(includeEvent&&market.event_ticker){
-    try{event=(await fetchKalshiJson(`/events/${encodeURIComponent(market.event_ticker)}`)).event||null;}catch{}
+    try{event=await fetchKalshiEvent(market.event_ticker);}catch{}
   }
   return {market,event};
+}
+async function fetchKalshiEvent(eventTicker){
+  const ticker=String(eventTicker||'').trim().toUpperCase();
+  if(!ticker) return null;
+  const cached=kalshiEventCache.get(ticker);
+  if(cached&&cached.expiresAt>Date.now()) return cached.event;
+  const event=(await fetchKalshiJson(`/events/${encodeURIComponent(ticker)}`)).event||null;
+  kalshiEventCache.set(ticker,{event,expiresAt:Date.now()+1000*60*10});
+  return event;
 }
 async function settleBinaryMarket(market,outcome){
   if(!market||!['open','closed'].includes(market.status)) throw new Error('Market is already resolved');
@@ -2761,13 +2777,16 @@ async function syncKalshiMarkets(){
     for(const local of linked){
       summary.checked++;
       try{
-        const {market:remote}=await fetchKalshiMarket(local.source_market_id);
+        const {market:remote,event}=await fetchKalshiMarket(local.source_market_id,{includeEvent:true});
         const remoteStatus=String(remote.status||'').toLowerCase();
         const remoteResult=String(remote.result||'').toLowerCase();
         const closeDate=normalizeCloseDate(remote.close_time)||local.close_date;
+        const originalQuestion=kalshiQuestion(remote);
+        const contextualQuestion=kalshiQuestion(remote,event);
+        const improveQuestion=local.question===originalQuestion&&contextualQuestion!==originalQuestion;
         if(remoteStatus==='finalized'&&['yes','no'].includes(remoteResult)){
-          await db.run('UPDATE markets SET close_date=?,source_status=?,source_updated_at=? WHERE id=?',[closeDate,remoteStatus,Date.now(),local.id]);
-          await settleBinaryMarket({...local,close_date:closeDate},remoteResult.toUpperCase());
+          await db.run('UPDATE markets SET close_date=?,source_status=?,source_updated_at=?,question=CASE WHEN ?=1 THEN ? ELSE question END WHERE id=?',[closeDate,remoteStatus,Date.now(),improveQuestion?1:0,contextualQuestion,local.id]);
+          await settleBinaryMarket({...local,question:improveQuestion?contextualQuestion:local.question,close_date:closeDate},remoteResult.toUpperCase());
           summary.resolved++;summary.updated++;
           continue;
         }
@@ -2777,7 +2796,7 @@ async function syncKalshiMarkets(){
         if(local.status!==nextStatus){
           if(nextStatus==='closed') summary.closed++; else summary.reopened++;
         }
-        await db.run('UPDATE markets SET status=?,close_date=?,source_status=?,source_updated_at=? WHERE id=?',[nextStatus,closeDate,remoteStatus,Date.now(),local.id]);
+        await db.run('UPDATE markets SET status=?,close_date=?,source_status=?,source_updated_at=?,question=CASE WHEN ?=1 THEN ? ELSE question END WHERE id=?',[nextStatus,closeDate,remoteStatus,Date.now(),improveQuestion?1:0,contextualQuestion,local.id]);
         summary.updated++;
       }catch(error){summary.errors.push({ticker:local.source_market_id,error:error.message});}
     }
@@ -2799,9 +2818,17 @@ app.get('/api/admin/kalshi/discover',authMiddleware,adminOnly,async(req,res)=>{
     const data=await fetchKalshiJson(`/markets?limit=${limit}&status=open&mve_filter=exclude`);
     const existing=await db.all("SELECT source_market_id FROM markets WHERE source='kalshi' AND source_market_id IS NOT NULL");
     const existingTickers=new Set(existing.map(row=>String(row.source_market_id)));
-    const markets=(Array.isArray(data.markets)?data.markets:[])
-      .filter(market=>String(market.market_type||'binary').toLowerCase()==='binary')
-      .map(market=>({...kalshiSafeMarket(market),alreadyLinked:existingTickers.has(String(market.ticker))}));
+    const rawMarkets=(Array.isArray(data.markets)?data.markets:[])
+      .filter(market=>String(market.market_type||'binary').toLowerCase()==='binary');
+    const eventTickers=[...new Set(rawMarkets.map(market=>market.event_ticker).filter(Boolean))];
+    const eventPairs=await Promise.all(eventTickers.map(async ticker=>{
+      try{return [ticker,await fetchKalshiEvent(ticker)];}catch{return [ticker,null];}
+    }));
+    const eventsByTicker=new Map(eventPairs);
+    const markets=rawMarkets.map(market=>({
+      ...kalshiSafeMarket(market,eventsByTicker.get(market.event_ticker)||null),
+      alreadyLinked:existingTickers.has(String(market.ticker)),
+    }));
     res.json({markets,requested:limit});
   }catch(error){res.status(502).json({error:error.message});}
 });
