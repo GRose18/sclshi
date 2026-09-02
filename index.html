@@ -144,6 +144,31 @@
   .status-closed{background:var(--bg4);color:var(--text3);border:1px solid var(--border)}
   .status-resolved-yes,.status-resolved-over{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
   .status-resolved-no,.status-resolved-under{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
+  .featured-linked-market{display:grid;grid-template-columns:minmax(270px,.8fr) minmax(360px,1.2fr);gap:26px;padding:24px;margin-bottom:20px;border:1px solid var(--border-hi);border-radius:22px;background:linear-gradient(145deg,rgba(0,208,132,.055),var(--bg2) 42%);overflow:hidden;position:relative}
+  .featured-linked-market:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--green)}
+  .featured-kicker{display:flex;align-items:center;gap:9px;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-bottom:14px}
+  .featured-kicker-icon{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:rgba(0,208,132,.12);border:1px solid rgba(0,208,132,.22);font-size:15px}
+  .featured-event-title{font-size:23px;font-weight:760;letter-spacing:-.03em;line-height:1.18;color:var(--text);margin-bottom:7px}
+  .featured-contract{font-size:13px;color:var(--text2);line-height:1.45;margin-bottom:18px}
+  .featured-outcome-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .featured-outcome-name{flex:1;font-size:13px;font-weight:650;color:var(--text)}
+  .featured-outcome-line{height:3px;min-width:45px;border-radius:4px}
+  .featured-outcome-pct{min-width:68px;text-align:center;padding:8px 12px;border:1px solid var(--green);border-radius:999px;font-size:15px;font-weight:800;color:var(--text)}
+  .featured-chart-wrap{min-height:230px;display:flex;flex-direction:column;justify-content:center}
+  .featured-chart-legend{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px;font-size:11px;color:var(--text3)}
+  .featured-chart-legend strong{color:var(--text2)}
+  .featured-chart{width:100%;height:210px;overflow:visible}
+  .linked-market-card{padding:17px 18px 15px;background:linear-gradient(180deg,rgba(255,255,255,.018),var(--bg2));border-radius:18px}
+  .linked-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+  .linked-card-kind{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--text2)}
+  .linked-card-icon{width:29px;height:29px;border-radius:8px;display:grid;place-items:center;background:var(--bg4);border:1px solid var(--border-hi)}
+  .linked-card-event{font-size:16px;font-weight:750;letter-spacing:-.02em;color:var(--text);line-height:1.28;margin-bottom:4px}
+  .linked-card-contract{font-size:11px;color:var(--text3);line-height:1.4;margin-bottom:11px;min-height:31px}
+  .linked-card-outcomes{display:flex;flex-direction:column;gap:7px;margin-bottom:13px}
+  .linked-card-outcome{display:grid;grid-template-columns:42px 1fr 58px;align-items:center;gap:9px;font-size:11px;font-weight:700;color:var(--text2)}
+  .linked-card-track{height:3px;background:var(--bg4);border-radius:4px;overflow:hidden}.linked-card-fill{height:100%;border-radius:4px}
+  .linked-card-pill{text-align:center;padding:6px 7px;border:1px solid var(--green);border-radius:999px;color:var(--text);font-size:12px}
+  @media(max-width:760px){.featured-linked-market{grid-template-columns:1fr;padding:19px;gap:18px}.featured-chart-wrap{min-height:190px}.featured-chart{height:180px}.featured-event-title{font-size:20px}}
 
   /* MODALS */
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
@@ -596,6 +621,7 @@
           <option value="Current Events">Current Events</option>
         </select>
       </div>
+      <div id="featured-linked-market"></div>
       <div class="markets-grid" id="markets-grid"><div class="loading">Loading markets…</div></div>
     </div>
 
@@ -3416,11 +3442,65 @@ function updateMarketCountdowns(){
     el.classList.toggle('is-urgent',diff>0&&diff<=300000);
   });
 }
+function splitLinkedMarketQuestion(question){
+  const text=String(question||'').trim();
+  const separator=text.indexOf(' — ');
+  if(separator<0)return {event:text,contract:'Student-priced YES / NO market'};
+  return {event:text.slice(0,separator).trim(),contract:text.slice(separator+3).trim()};
+}
+function marketCategoryIcon(category){
+  const value=String(category||'').toLowerCase();
+  if(value.includes('sport'))return '⚡';
+  if(value.includes('school'))return '✦';
+  if(value.includes('fun'))return '◉';
+  return '◆';
+}
+function featuredProbabilitySvg(history){
+  const values=(history||[]).map(point=>Math.max(0,Math.min(100,Number(point.yes_pct||50))));
+  if(values.length<2)values.push(values[0]??50);
+  const width=620,height=190,padX=12,padY=13;
+  const x=index=>padX+(index/(values.length-1))*(width-padX*2);
+  const y=value=>padY+((100-value)/100)*(height-padY*2);
+  const yesPoints=values.map((value,index)=>`${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
+  const noPoints=values.map((value,index)=>`${x(index).toFixed(1)},${y(100-value).toFixed(1)}`).join(' ');
+  const lastX=x(values.length-1),lastYes=y(values.at(-1)),lastNo=y(100-values.at(-1));
+  return `<svg class="featured-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Student implied probability history">
+    ${[0,25,50,75,100].map(value=>`<line x1="0" y1="${y(value)}" x2="${width}" y2="${y(value)}" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 6"/><text x="${width-2}" y="${y(value)-4}" text-anchor="end" fill="rgba(255,255,255,.34)" font-size="9">${value}%</text>`).join('')}
+    <polyline points="${noPoints}" fill="none" stroke="rgba(255,255,255,.78)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    <polyline points="${yesPoints}" fill="none" stroke="var(--green)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    <circle cx="${lastX}" cy="${lastNo}" r="6" fill="#fff"/><circle cx="${lastX}" cy="${lastYes}" r="5" fill="var(--green)"/>
+  </svg>`;
+}
+function renderFeaturedLinkedMarket(data){
+  const container=document.getElementById('featured-linked-market');
+  if(!container)return;
+  const market=data?.market;
+  if(!market){container.innerHTML='';return;}
+  const parts=splitLinkedMarketQuestion(market.question);
+  const yp=getYesPercent(market),np=100-yp;
+  const bettingOpen=isMarketBettingOpen(market);
+  container.innerHTML=`<div class="featured-linked-market" ${bettingOpen?`onclick="openBetModal('${market.id}')" style="cursor:pointer;"`:''}>
+    <div>
+      <div class="featured-kicker"><span class="featured-kicker-icon">${marketCategoryIcon(market.category)}</span><span>Featured student market</span></div>
+      <div class="featured-event-title">${esc(parts.event)}</div>
+      <div class="featured-contract">${esc(parts.contract)}</div>
+      <div class="market-countdown" data-close="${esc(market.close_date||'')}">Time remaining: ${formatMarketTimeRemaining(market.close_date)}</div>
+      <div class="featured-outcome-row"><span class="featured-outcome-name">YES</span><span class="featured-outcome-line" style="width:${Math.max(45,yp*1.4)}px;background:var(--green)"></span><span class="featured-outcome-pct">${yp}%</span></div>
+      <div class="featured-outcome-row"><span class="featured-outcome-name">NO</span><span class="featured-outcome-line" style="width:${Math.max(45,np*1.4)}px;background:rgba(255,255,255,.75)"></span><span class="featured-outcome-pct">${np}%</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-top:14px;font-size:11px;color:var(--text3);"><span>⬡ ${(market.pool||0).toLocaleString()} student volume</span><span>Outcome linked</span></div>
+    </div>
+    <div class="featured-chart-wrap"><div class="featured-chart-legend"><strong>Student probability history</strong><span><i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;"></i>YES ${yp}% &nbsp; <i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#fff;margin-right:5px;"></i>NO ${np}%</span></div>${featuredProbabilitySvg(data.history)}</div>
+  </div>`;
+}
 async function renderMarkets(){
   const grid=document.getElementById('markets-grid');
   grid.innerHTML='<div class="loading">Loading markets…</div>';
   const cat=document.getElementById('filter-category').value;
-  const markets=await api('GET','/markets'+(cat?'?category='+encodeURIComponent(cat):''));
+  const [markets,featured]=await Promise.all([
+    api('GET','/markets'+(cat?'?category='+encodeURIComponent(cat):'')),
+    cat?Promise.resolve({market:null,history:[]}):api('GET','/markets-featured/linked').catch(()=>({market:null,history:[]})),
+  ]);
+  renderFeaturedLinkedMarket(featured);
   markets.sort((a,b)=>{
     const aScore=isMarketBettingOpen(a)?2:(a.status==='open'?1:0);
     const bScore=isMarketBettingOpen(b)?2:(b.status==='open'?1:0);
@@ -3439,6 +3519,21 @@ async function renderMarkets(){
     let oddsHtml='';
     if(isOU){const op=getOverPercent(m),up=100-op;oddsHtml=`<div class="market-odds"><div class="odds-bar-wrap"><div class="odds-label"><span style="color:var(--blue)">OVER</span><span style="color:var(--blue)">${op}%</span></div><div class="odds-bar"><div class="odds-fill-over" style="width:${op}%"></div></div></div><div class="odds-bar-wrap"><div class="odds-label"><span style="color:var(--orange)">UNDER</span><span style="color:var(--orange)">${up}%</span></div><div class="odds-bar"><div class="odds-fill-under" style="width:${up}%"></div></div></div></div>`;}
     else{const yp=getYesPercent(m),np=100-yp;oddsHtml=`<div class="market-odds"><div class="odds-bar-wrap"><div class="odds-label"><span style="color:var(--green)">YES</span><span style="color:var(--green)">${yp}%</span></div><div class="odds-bar"><div class="odds-fill-yes" style="width:${yp}%"></div></div></div><div class="odds-bar-wrap"><div class="odds-label"><span style="color:var(--red)">NO</span><span style="color:var(--red)">${np}%</span></div><div class="odds-bar"><div class="odds-fill-no" style="width:${np}%"></div></div></div></div>`;}
+    if(m.source==='kalshi'){
+      const parts=splitLinkedMarketQuestion(m.question);
+      const yp=getYesPercent(m),np=100-yp;
+      return `<div class="market-card linked-market-card ${bettingOpen?'':'resolved'}" onclick="${bettingOpen?`openBetModal('${m.id}')`:''}">
+        <div class="linked-card-head"><div class="linked-card-kind"><span class="linked-card-icon">${marketCategoryIcon(m.category)}</span>${esc(m.category||'Market')}</div><span class="status-tag ${bettingOpen?'status-open':'status-closed'}">${bettingOpen?'Live':'Closed'}</span></div>
+        <div class="linked-card-event">${esc(parts.event)}</div>
+        <div class="linked-card-contract">${esc(parts.contract)}</div>
+        <div class="linked-card-outcomes">
+          <div class="linked-card-outcome"><span style="color:var(--green)">YES</span><div class="linked-card-track"><div class="linked-card-fill" style="width:${yp}%;background:var(--green)"></div></div><span class="linked-card-pill">${yp}%</span></div>
+          <div class="linked-card-outcome"><span style="color:var(--text2)">NO</span><div class="linked-card-track"><div class="linked-card-fill" style="width:${np}%;background:var(--text2)"></div></div><span class="linked-card-pill">${np}%</span></div>
+        </div>
+        <div class="market-countdown" data-close="${esc(m.close_date||'')}">Time remaining: ${formatMarketTimeRemaining(m.close_date)}</div>
+        <div class="market-meta"><span>⬡ ${(m.pool||0).toLocaleString()} student volume</span><span>Outcome linked</span></div>
+      </div>`;
+    }
     return `<div class="market-card ${bettingOpen?'':'resolved'}" onclick="${bettingOpen?`openBetModal('${m.id}')`:'' }">
       ${isOU?`<span class="market-type-badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-dim);">Over/Under</span>`:''}
       ${m.source==='kalshi'?`<span class="market-type-badge" style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim);${isOU?'margin-left:6px;':''}">Outcome linked</span>`:''}

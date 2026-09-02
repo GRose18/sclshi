@@ -290,6 +290,10 @@ async function initDB() {
       source_event_id TEXT DEFAULT NULL, source_status TEXT DEFAULT NULL,
       source_updated_at INTEGER DEFAULT NULL
     );
+    CREATE TABLE IF NOT EXISTS market_probability_history (
+      id TEXT PRIMARY KEY, market_id TEXT NOT NULL,
+      yes_pct REAL NOT NULL, timestamp INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS bets (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, market_id TEXT NOT NULL,
       side TEXT NOT NULL, amount REAL NOT NULL, shares REAL NOT NULL,
@@ -524,6 +528,7 @@ async function initDB() {
     await db.exec(`
       CREATE INDEX IF NOT EXISTS idx_markets_status_created_at ON markets(status, created_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_markets_source_market ON markets(source, source_market_id) WHERE source_market_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_market_probability_history_market_time ON market_probability_history(market_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_bets_user_status_timestamp ON bets(user_id, status, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_bets_status_timestamp ON bets(status, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_transactions_user_timestamp ON transactions(user_id, timestamp DESC);
@@ -2857,6 +2862,7 @@ app.post('/api/admin/kalshi/import',authMiddleware,adminOnly,async(req,res)=>{
       (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,source,source_market_id,source_event_id,source_status,source_updated_at)
       VALUES (?,?,?,?,?,0,0,100,0,?,'binary','kalshi',?,?,?,?)`,
       [id,question,category,status,safe.closeDate,Date.now(),safe.ticker,safe.eventTicker,safe.status,Date.now()]);
+    await db.run('INSERT INTO market_probability_history (id,market_id,yes_pct,timestamp) VALUES (?,?,50,?)',[generateId('mph'),id,Date.now()]);
     bumpBetsSnapshotVersion();
     res.status(201).json(await db.get('SELECT * FROM markets WHERE id=?',[id]));
   }catch(error){res.status(error.message.includes('not found')?404:502).json({error:error.message});}
@@ -2875,6 +2881,15 @@ app.get('/api/markets', authMiddleware, async(req,res)=>{
   res.json(category
     ?await db.all('SELECT * FROM markets WHERE category=? ORDER BY created_at DESC',[category])
     :await db.all('SELECT * FROM markets ORDER BY created_at DESC'));
+});
+app.get('/api/markets-featured/linked',authMiddleware,async(req,res)=>{
+  const market=await db.get("SELECT * FROM markets WHERE source='kalshi' AND status IN ('open','closed') ORDER BY pool DESC, created_at DESC LIMIT 1");
+  if(!market) return res.json({market:null,history:[]});
+  let history=await db.all('SELECT yes_pct,timestamp FROM market_probability_history WHERE market_id=? ORDER BY timestamp DESC LIMIT 48',[market.id]);
+  history=history.reverse();
+  if(!history.length) history=[{yes_pct:50,timestamp:Number(market.created_at||Date.now())},{yes_pct:getYesPercent(market),timestamp:Date.now()}];
+  else if(history.length===1) history.push({yes_pct:getYesPercent(market),timestamp:Date.now()});
+  res.json({market,history});
 });
 app.get('/api/markets/:id', authMiddleware, async(req,res)=>{
   const m=await db.get('SELECT * FROM markets WHERE id=?',[req.params.id]);
@@ -2960,6 +2975,7 @@ app.delete('/api/markets/:id', authMiddleware, adminOnly, async(req,res)=>{
       await db.run("UPDATE bets SET status='refunded' WHERE id=?",[b.id]);
       await recordTx(b.user_id,b.amount,'refund',b.id,`Market deleted — refund`);
     }
+    await db.run('DELETE FROM market_probability_history WHERE market_id=?',[req.params.id]);
     await db.run('DELETE FROM markets WHERE id=?',[req.params.id]);
     res.json({success:true, refunded:activeBets.length});
   }catch(e){res.status(500).json({error:e.message});}
@@ -2986,6 +3002,10 @@ app.post('/api/bets', authMiddleware, async(req,res)=>{
     } else {
       if(side==='YES') await db.run('UPDATE markets SET yes_shares=yes_shares+?,pool=pool+? WHERE id=?',[amount,amount,m.id]);
       else await db.run('UPDATE markets SET no_shares=no_shares+?,pool=pool+? WHERE id=?',[amount,amount,m.id]);
+    }
+    if(m.source==='kalshi'&&m.market_type==='binary'){
+      const updatedMarket=await db.get('SELECT yes_shares,no_shares FROM markets WHERE id=?',[m.id]);
+      await db.run('INSERT INTO market_probability_history (id,market_id,yes_pct,timestamp) VALUES (?,?,?,?)',[generateId('mph'),m.id,getYesPercent(updatedMarket),Date.now()]);
     }
     const betId=generateId('b');
     await db.run("INSERT INTO bets (id,user_id,market_id,side,amount,shares,status,timestamp) VALUES (?,?,?,?,?,?,'active',?)",
