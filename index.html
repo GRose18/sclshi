@@ -1434,6 +1434,13 @@
           <div class="form-group" style="flex:1;margin-bottom:0;"><label>Kalshi market ticker</label><input id="kalshi-market-ticker" type="text" placeholder="Example: KX..." autocomplete="off" onkeydown="if(event.key==='Enter')previewKalshiMarket()"></div>
           <button class="btn-admin" id="kalshi-preview-btn" onclick="previewKalshiMarket()">Preview Import</button>
         </div>
+        <div style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <div class="form-group" style="margin:0;width:150px;"><label>Number to fetch</label><select id="kalshi-fetch-count"><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div>
+          <div class="form-group" style="margin:0;width:170px;"><label>Import category</label><select id="kalshi-fetch-category"><option>Sports</option><option>School</option><option>Fun</option><option selected>Current Events</option></select></div>
+          <button class="btn-admin" id="kalshi-fetch-btn" onclick="fetchKalshiMarkets()">Fetch Markets</button>
+          <span style="font-size:11px;color:var(--text3);">Fetches currently open markets for selection.</span>
+        </div>
+        <div id="kalshi-discovery-results" style="margin-top:14px;"></div>
         <div id="kalshi-import-preview" style="margin-top:14px;"></div>
         <div id="kalshi-link-status" style="font-size:11px;color:var(--text3);margin-top:10px;">Loading linked markets…</div>
       </div>
@@ -5348,6 +5355,57 @@ window.addEventListener('popstate',()=>{
 
 function toggleLineInput(){document.getElementById('line-input-group').style.display=document.getElementById('new-market-type').value==='overunder'?'block':'none';}
 let pendingKalshiImport=null;
+let discoveredKalshiMarkets=[];
+async function fetchKalshiMarkets(){
+  const count=Number(document.getElementById('kalshi-fetch-count')?.value||10);
+  const button=document.getElementById('kalshi-fetch-btn');
+  const results=document.getElementById('kalshi-discovery-results');
+  button.disabled=true;button.textContent='Fetching…';
+  results.innerHTML='<div class="loading">Fetching open market metadata…</div>';
+  try{
+    const data=await api('GET',`/admin/kalshi/discover?limit=${encodeURIComponent(count)}`,null,{},20000);
+    discoveredKalshiMarkets=data.markets||[];
+    if(!discoveredKalshiMarkets.length){results.innerHTML='<p style="font-size:12px;color:var(--text3);">No open markets were returned.</p>';return;}
+    results.innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+        <strong style="font-size:12px;color:var(--text2);">Choose markets to import</strong>
+        <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;"><input type="checkbox" checked onchange="toggleAllKalshiDiscoveries(this.checked)"> Select available</label>
+      </div>
+      <div style="max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:12px;">
+        ${discoveredKalshiMarkets.map((market,index)=>`<label style="display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border-bottom:1px solid var(--border);cursor:${market.alreadyLinked?'default':'pointer'};opacity:${market.alreadyLinked?'.48':'1'};">
+          <input class="kalshi-discovery-check" type="checkbox" data-index="${index}" ${market.alreadyLinked?'disabled':'checked'} style="margin-top:2px;accent-color:var(--accent);">
+          <span style="min-width:0;"><strong style="display:block;font-size:12px;color:var(--text);">${esc(market.question)}</strong><span style="font-size:10px;color:var(--text3);">${esc(market.ticker)} · closes ${formatMarketCloseDate(market.closeDate)}${market.alreadyLinked?' · already linked':''}</span></span>
+        </label>`).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;">
+        <button class="btn-admin" id="kalshi-bulk-import-btn" onclick="importSelectedKalshiMarkets()">Import Selected Markets</button>
+        <span style="font-size:11px;color:var(--text3);">Every imported market starts with Sclshi's own 50/50 student price.</span>
+      </div>`;
+  }catch(error){discoveredKalshiMarkets=[];results.innerHTML=`<div class="notif error">${esc(error.message)}</div>`;}
+  finally{button.disabled=false;button.textContent='Fetch Markets';}
+}
+function toggleAllKalshiDiscoveries(checked){
+  document.querySelectorAll('.kalshi-discovery-check:not(:disabled)').forEach(box=>{box.checked=checked;});
+}
+async function importSelectedKalshiMarkets(){
+  const selected=[...document.querySelectorAll('.kalshi-discovery-check:checked')]
+    .map(box=>discoveredKalshiMarkets[Number(box.dataset.index)]).filter(Boolean);
+  if(!selected.length){alert('Select at least one market.');return;}
+  const category=document.getElementById('kalshi-fetch-category')?.value||'Current Events';
+  const button=document.getElementById('kalshi-bulk-import-btn');
+  button.disabled=true;button.textContent=`Importing 0/${selected.length}…`;
+  let imported=0;const failed=[];
+  for(const market of selected){
+    try{await api('POST','/admin/kalshi/import',{ticker:market.ticker,question:market.question,category}, {}, 20000);imported++;}
+    catch(error){failed.push(`${market.ticker}: ${error.message}`);}
+    button.textContent=`Importing ${imported+failed.length}/${selected.length}…`;
+  }
+  showToast(`Imported ${imported} linked market${imported===1?'':'s'}${failed.length?`; ${failed.length} skipped`:''}.`);
+  if(failed.length) alert(`Some markets were not imported:\n\n${failed.slice(0,8).join('\n')}`);
+  discoveredKalshiMarkets=[];
+  document.getElementById('kalshi-discovery-results').innerHTML='';
+  renderAdminTab();
+}
 async function previewKalshiMarket(){
   const tickerInput=document.getElementById('kalshi-market-ticker');
   const preview=document.getElementById('kalshi-import-preview');

@@ -2792,6 +2792,19 @@ app.get('/api/admin/kalshi/preview/:ticker',authMiddleware,adminOnly,async(req,r
     res.json(kalshiSafeMarket(market,event));
   }catch(error){res.status(error.message.includes('not found')?404:502).json({error:error.message});}
 });
+app.get('/api/admin/kalshi/discover',authMiddleware,adminOnly,async(req,res)=>{
+  try{
+    const requested=Number.parseInt(req.query.limit,10);
+    const limit=Math.min(25,Math.max(1,Number.isFinite(requested)?requested:10));
+    const data=await fetchKalshiJson(`/markets?limit=${limit}&status=open&mve_filter=exclude`);
+    const existing=await db.all("SELECT source_market_id FROM markets WHERE source='kalshi' AND source_market_id IS NOT NULL");
+    const existingTickers=new Set(existing.map(row=>String(row.source_market_id)));
+    const markets=(Array.isArray(data.markets)?data.markets:[])
+      .filter(market=>String(market.market_type||'binary').toLowerCase()==='binary')
+      .map(market=>({...kalshiSafeMarket(market),alreadyLinked:existingTickers.has(String(market.ticker))}));
+    res.json({markets,requested:limit});
+  }catch(error){res.status(502).json({error:error.message});}
+});
 app.post('/api/admin/kalshi/import',authMiddleware,adminOnly,async(req,res)=>{
   try{
     const ticker=normalizeKalshiTicker(req.body.ticker);
