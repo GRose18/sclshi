@@ -1464,7 +1464,7 @@
           <div class="form-group" style="margin:0;width:150px;"><label>Number to fetch</label><select id="kalshi-fetch-count"><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div>
           <div class="form-group" style="margin:0;width:170px;"><label>Import category</label><select id="kalshi-fetch-category"><option>Sports</option><option>School</option><option>Fun</option><option selected>Current Events</option></select></div>
           <button class="btn-admin" id="kalshi-fetch-btn" onclick="fetchKalshiMarkets()">Fetch Markets</button>
-          <span style="font-size:11px;color:var(--text3);">Fetches currently open markets for selection.</span>
+          <span style="font-size:11px;color:var(--text3);">Fetches one representative contract per distinct open event.</span>
         </div>
         <div id="kalshi-discovery-results" style="margin-top:14px;"></div>
         <div id="kalshi-import-preview" style="margin-top:14px;"></div>
@@ -5463,7 +5463,7 @@ async function fetchKalshiMarkets(){
     if(!discoveredKalshiMarkets.length){results.innerHTML='<p style="font-size:12px;color:var(--text3);">No open markets were returned.</p>';return;}
     results.innerHTML=`
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-        <strong style="font-size:12px;color:var(--text2);">Choose markets to import</strong>
+        <strong style="font-size:12px;color:var(--text2);">Choose ${discoveredKalshiMarkets.length} distinct event${discoveredKalshiMarkets.length===1?'':'s'} to import</strong>
         <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;"><input type="checkbox" checked onchange="toggleAllKalshiDiscoveries(this.checked)"> Select available</label>
       </div>
       <div style="max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:12px;">

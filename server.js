@@ -2724,6 +2724,19 @@ function kalshiSafeMarket(market, event=null){
     rules:String(market?.rules_primary||'').slice(0,2000),
   };
 }
+function kalshiEventGroupKey(market){
+  const eventTicker=String(market?.event_ticker||market?.ticker||'').toUpperCase();
+  const parts=eventTicker.split('-').filter(Boolean);
+  return parts.length>1?parts[1]:eventTicker;
+}
+function kalshiRepresentativeScore(market){
+  const title=String(market?.title||market?.yes_sub_title||'').toLowerCase();
+  if(/\b(win|winner|advance|both teams to score)\b/.test(title)&&!/more than|spread|over|under/.test(title))return 50;
+  if(/both teams to score|\bbtts\b/.test(title))return 40;
+  if(/over 2\.5|under 2\.5/.test(title))return 30;
+  if(!/over|under|more than|spread/.test(title))return 20;
+  return 10;
+}
 async function fetchKalshiJson(pathname){
   const request=base=>fetch(`${base}${pathname}`,{
     headers:{Accept:'application/json','User-Agent':'Sclshi/1.0'},signal:AbortSignal.timeout(10000),
@@ -2820,11 +2833,23 @@ app.get('/api/admin/kalshi/discover',authMiddleware,adminOnly,async(req,res)=>{
   try{
     const requested=Number.parseInt(req.query.limit,10);
     const limit=Math.min(25,Math.max(1,Number.isFinite(requested)?requested:10));
-    const data=await fetchKalshiJson(`/markets?limit=${limit}&status=open&mve_filter=exclude`);
-    const existing=await db.all("SELECT source_market_id FROM markets WHERE source='kalshi' AND source_market_id IS NOT NULL");
+    const discoveryLimit=Math.min(1000,Math.max(limit*50,200));
+    const data=await fetchKalshiJson(`/markets?limit=${discoveryLimit}&status=open&mve_filter=exclude`);
+    const existing=await db.all("SELECT source_market_id,source_event_id FROM markets WHERE source='kalshi' AND source_market_id IS NOT NULL");
     const existingTickers=new Set(existing.map(row=>String(row.source_market_id)));
-    const rawMarkets=(Array.isArray(data.markets)?data.markets:[])
+    const existingGroups=new Set(existing.map(row=>kalshiEventGroupKey({event_ticker:row.source_event_id, ticker:row.source_market_id})));
+    const candidates=(Array.isArray(data.markets)?data.markets:[])
       .filter(market=>String(market.market_type||'binary').toLowerCase()==='binary');
+    const grouped=new Map();
+    for(const market of candidates){
+      const groupKey=kalshiEventGroupKey(market);
+      const current=grouped.get(groupKey);
+      if(!current||kalshiRepresentativeScore(market)>kalshiRepresentativeScore(current)) grouped.set(groupKey,market);
+    }
+    const rawMarkets=[...grouped.entries()]
+      .filter(([groupKey])=>!existingGroups.has(groupKey))
+      .slice(0,limit)
+      .map(([,market])=>market);
     const eventTickers=[...new Set(rawMarkets.map(market=>market.event_ticker).filter(Boolean))];
     const eventPairs=await Promise.all(eventTickers.map(async ticker=>{
       try{return [ticker,await fetchKalshiEvent(ticker)];}catch{return [ticker,null];}
@@ -2833,8 +2858,9 @@ app.get('/api/admin/kalshi/discover',authMiddleware,adminOnly,async(req,res)=>{
     const markets=rawMarkets.map(market=>({
       ...kalshiSafeMarket(market,eventsByTicker.get(market.event_ticker)||null),
       alreadyLinked:existingTickers.has(String(market.ticker)),
+      eventGroup:kalshiEventGroupKey(market),
     }));
-    res.json({markets,requested:limit});
+    res.json({markets,requested:limit,contractsScanned:candidates.length,distinctEvents:markets.length});
   }catch(error){res.status(502).json({error:error.message});}
 });
 app.post('/api/admin/kalshi/import',authMiddleware,adminOnly,async(req,res)=>{
