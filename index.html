@@ -159,6 +159,7 @@
   .featured-chart-legend strong{color:var(--text2)}
   .featured-chart{width:100%;height:210px;overflow:visible}
   .linked-market-card{padding:17px 18px 15px;background:linear-gradient(180deg,rgba(255,255,255,.018),var(--bg2));border-radius:18px}
+  .linked-market-card.is-expanded{border-color:rgba(0,208,132,.5);box-shadow:0 0 0 1px rgba(0,208,132,.12)}
   .linked-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
   .linked-card-kind{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--text2)}
   .linked-card-icon{width:29px;height:29px;border-radius:8px;display:grid;place-items:center;background:var(--bg4);border:1px solid var(--border-hi)}
@@ -168,6 +169,7 @@
   .linked-card-outcome{display:grid;grid-template-columns:42px 1fr 58px;align-items:center;gap:9px;font-size:11px;font-weight:700;color:var(--text2)}
   .linked-card-track{height:3px;background:var(--bg4);border-radius:4px;overflow:hidden}.linked-card-fill{height:100%;border-radius:4px}
   .linked-card-pill{text-align:center;padding:6px 7px;border:1px solid var(--green);border-radius:999px;color:var(--text);font-size:12px}
+  .expanded-market-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}.expanded-market-actions button{padding:10px 15px;border-radius:999px;font:700 12px 'Inter',sans-serif;cursor:pointer}.expanded-market-trade{border:0;background:var(--green);color:#04140e}.expanded-market-close{border:1px solid var(--border-hi);background:var(--bg4);color:var(--text2)}
   @media(max-width:760px){.featured-linked-market{grid-template-columns:1fr;padding:19px;gap:18px}.featured-chart-wrap{min-height:190px}.featured-chart{height:180px}.featured-event-title{font-size:20px}}
 
   /* MODALS */
@@ -3471,6 +3473,7 @@ function featuredProbabilitySvg(history){
     <circle cx="${lastX}" cy="${lastNo}" r="6" fill="#fff"/><circle cx="${lastX}" cy="${lastYes}" r="5" fill="var(--green)"/>
   </svg>`;
 }
+let expandedLinkedMarketId=null;
 function renderFeaturedLinkedMarket(data){
   const container=document.getElementById('featured-linked-market');
   if(!container)return;
@@ -3479,28 +3482,48 @@ function renderFeaturedLinkedMarket(data){
   const parts=splitLinkedMarketQuestion(market.question);
   const yp=getYesPercent(market),np=100-yp;
   const bettingOpen=isMarketBettingOpen(market);
-  container.innerHTML=`<div class="featured-linked-market" ${bettingOpen?`onclick="openBetModal('${market.id}')" style="cursor:pointer;"`:''}>
+  container.innerHTML=`<div class="featured-linked-market">
     <div>
-      <div class="featured-kicker"><span class="featured-kicker-icon">${marketCategoryIcon(market.category)}</span><span>Featured student market</span></div>
+      <div class="featured-kicker"><span class="featured-kicker-icon">${marketCategoryIcon(market.category)}</span><span>Expanded student market</span></div>
       <div class="featured-event-title">${esc(parts.event)}</div>
       <div class="featured-contract">${esc(parts.contract)}</div>
       <div class="market-countdown" data-close="${esc(market.close_date||'')}">Time remaining: ${formatMarketTimeRemaining(market.close_date)}</div>
       <div class="featured-outcome-row"><span class="featured-outcome-name">YES</span><span class="featured-outcome-line" style="width:${Math.max(45,yp*1.4)}px;background:var(--green)"></span><span class="featured-outcome-pct">${yp}%</span></div>
       <div class="featured-outcome-row"><span class="featured-outcome-name">NO</span><span class="featured-outcome-line" style="width:${Math.max(45,np*1.4)}px;background:rgba(255,255,255,.75)"></span><span class="featured-outcome-pct">${np}%</span></div>
       <div style="display:flex;justify-content:space-between;gap:10px;margin-top:14px;font-size:11px;color:var(--text3);"><span>⬡ ${(market.pool||0).toLocaleString()} student volume</span><span>Outcome linked</span></div>
+      <div class="expanded-market-actions">${bettingOpen?`<button class="expanded-market-trade" onclick="openBetModal('${market.id}')">Predict with CampusBucks</button>`:''}<button class="expanded-market-close" onclick="collapseLinkedMarket()">Collapse</button></div>
     </div>
     <div class="featured-chart-wrap"><div class="featured-chart-legend"><strong>Student probability history</strong><span><i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;"></i>YES ${yp}% &nbsp; <i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#fff;margin-right:5px;"></i>NO ${np}%</span></div>${featuredProbabilitySvg(data.history)}</div>
   </div>`;
+}
+async function toggleLinkedMarket(marketId){
+  if(expandedLinkedMarketId===marketId){collapseLinkedMarket();return;}
+  expandedLinkedMarketId=marketId;
+  const container=document.getElementById('featured-linked-market');
+  if(container)container.innerHTML='<div class="featured-linked-market"><div class="loading">Loading student probability history…</div></div>';
+  document.querySelectorAll('.linked-market-card').forEach(card=>card.classList.toggle('is-expanded',card.dataset.marketId===marketId));
+  try{
+    const data=await api('GET',`/markets/${encodeURIComponent(marketId)}/history`);
+    if(expandedLinkedMarketId!==marketId)return;
+    renderFeaturedLinkedMarket(data);
+    container?.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(error){expandedLinkedMarketId=null;if(container)container.innerHTML='';alert(error.message);}
+}
+function collapseLinkedMarket(){
+  expandedLinkedMarketId=null;
+  renderFeaturedLinkedMarket({market:null,history:[]});
+  document.querySelectorAll('.linked-market-card').forEach(card=>card.classList.remove('is-expanded'));
 }
 async function renderMarkets(){
   const grid=document.getElementById('markets-grid');
   grid.innerHTML='<div class="loading">Loading markets…</div>';
   const cat=document.getElementById('filter-category').value;
-  const [markets,featured]=await Promise.all([
-    api('GET','/markets'+(cat?'?category='+encodeURIComponent(cat):'')),
-    cat?Promise.resolve({market:null,history:[]}):api('GET','/markets-featured/linked').catch(()=>({market:null,history:[]})),
-  ]);
-  renderFeaturedLinkedMarket(featured);
+  const markets=await api('GET','/markets'+(cat?'?category='+encodeURIComponent(cat):''));
+  if(expandedLinkedMarketId){
+    const stillVisible=markets.some(m=>m.id===expandedLinkedMarketId);
+    if(stillVisible)api('GET',`/markets/${encodeURIComponent(expandedLinkedMarketId)}/history`).then(renderFeaturedLinkedMarket).catch(collapseLinkedMarket);
+    else collapseLinkedMarket();
+  }else renderFeaturedLinkedMarket({market:null,history:[]});
   markets.sort((a,b)=>{
     const aScore=isMarketBettingOpen(a)?2:(a.status==='open'?1:0);
     const bScore=isMarketBettingOpen(b)?2:(b.status==='open'?1:0);
@@ -3522,7 +3545,7 @@ async function renderMarkets(){
     if(m.source==='kalshi'){
       const parts=splitLinkedMarketQuestion(m.question);
       const yp=getYesPercent(m),np=100-yp;
-      return `<div class="market-card linked-market-card ${bettingOpen?'':'resolved'}" onclick="${bettingOpen?`openBetModal('${m.id}')`:''}">
+      return `<div class="market-card linked-market-card ${expandedLinkedMarketId===m.id?'is-expanded':''}" data-market-id="${m.id}" onclick="toggleLinkedMarket('${m.id}')">
         <div class="linked-card-head"><div class="linked-card-kind"><span class="linked-card-icon">${marketCategoryIcon(m.category)}</span>${esc(m.category||'Market')}</div><span class="status-tag ${bettingOpen?'status-open':'status-closed'}">${bettingOpen?'Live':'Closed'}</span></div>
         <div class="linked-card-event">${esc(parts.event)}</div>
         <div class="linked-card-contract">${esc(parts.contract)}</div>

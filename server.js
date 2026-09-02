@@ -2917,6 +2917,15 @@ app.get('/api/markets-featured/linked',authMiddleware,async(req,res)=>{
   else if(history.length===1) history.push({yes_pct:getYesPercent(market),timestamp:Date.now()});
   res.json({market,history});
 });
+app.get('/api/markets/:id/history',authMiddleware,async(req,res)=>{
+  const market=await db.get("SELECT * FROM markets WHERE id=? AND source='kalshi'",[req.params.id]);
+  if(!market) return res.status(404).json({error:'Linked market not found'});
+  let history=await db.all('SELECT yes_pct,timestamp FROM market_probability_history WHERE market_id=? ORDER BY timestamp DESC LIMIT 48',[market.id]);
+  history=history.reverse();
+  if(!history.length) history=[{yes_pct:50,timestamp:Number(market.created_at||Date.now())},{yes_pct:getYesPercent(market),timestamp:Date.now()}];
+  else if(history.length===1) history.push({yes_pct:getYesPercent(market),timestamp:Date.now()});
+  res.json({market,history});
+});
 app.get('/api/markets/:id', authMiddleware, async(req,res)=>{
   const m=await db.get('SELECT * FROM markets WHERE id=?',[req.params.id]);
   if(!m) return res.status(404).json({error:'Not found'});
