@@ -120,9 +120,11 @@
 
   /* MARKETS */
   .markets-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
-  .market-card{background:var(--bg2);border-radius:var(--radius-lg);border:1px solid var(--border);padding:18px;cursor:pointer;transition:border-color 0.2s,transform 0.15s}
-  .market-card:hover{border-color:var(--border-hi);transform:translateY(-1px)}
-  .market-card.resolved{opacity:0.45;pointer-events:none}
+  .market-card{--market-accent:var(--green);background:radial-gradient(circle at 100% 0,color-mix(in srgb,var(--market-accent) 12%,transparent),transparent 38%),var(--bg2);border-radius:var(--radius-lg);border:1px solid var(--border);padding:18px;cursor:pointer;transition:border-color 0.2s,transform 0.15s,box-shadow .2s;position:relative;overflow:hidden}
+  .market-card:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--market-accent);opacity:.8}
+  .market-card:hover{border-color:color-mix(in srgb,var(--market-accent) 48%,var(--border-hi));transform:translateY(-2px);box-shadow:0 18px 40px color-mix(in srgb,var(--market-accent) 10%,transparent)}
+  .market-card.resolved{opacity:0.68}
+  .market-card.is-expanded{border-color:var(--market-accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--market-accent) 22%,transparent)}
   .market-type-badge{font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:2px 7px;border-radius:10px;display:inline-block;margin-bottom:6px}
   .market-category{font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
   .market-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;line-height:1.45}
@@ -144,22 +146,23 @@
   .status-closed{background:var(--bg4);color:var(--text3);border:1px solid var(--border)}
   .status-resolved-yes,.status-resolved-over{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
   .status-resolved-no,.status-resolved-under{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
-  .featured-linked-market{display:grid;grid-template-columns:minmax(270px,.8fr) minmax(360px,1.2fr);gap:26px;padding:24px;margin-bottom:20px;border:1px solid var(--border-hi);border-radius:22px;background:linear-gradient(145deg,rgba(0,208,132,.055),var(--bg2) 42%);overflow:hidden;position:relative}
-  .featured-linked-market:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--green)}
+  .featured-linked-market{--market-accent:var(--green);display:grid;grid-template-columns:minmax(270px,.8fr) minmax(360px,1.2fr);gap:30px;padding:30px;margin-bottom:22px;border:1px solid color-mix(in srgb,var(--market-accent) 32%,var(--border-hi));border-radius:28px;background:radial-gradient(circle at 6% 0,color-mix(in srgb,var(--market-accent) 18%,transparent),transparent 42%),linear-gradient(145deg,color-mix(in srgb,var(--market-accent) 5%,var(--bg2)),var(--bg2) 50%);overflow:hidden;position:relative;box-shadow:0 28px 70px rgba(0,0,0,.28)}
+  .featured-linked-market:before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--market-accent)}
   .featured-kicker{display:flex;align-items:center;gap:9px;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-bottom:14px}
-  .featured-kicker-icon{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:rgba(0,208,132,.12);border:1px solid rgba(0,208,132,.22);font-size:15px}
-  .featured-event-title{font-size:23px;font-weight:760;letter-spacing:-.03em;line-height:1.18;color:var(--text);margin-bottom:7px}
-  .featured-contract{font-size:13px;color:var(--text2);line-height:1.45;margin-bottom:18px}
+  .featured-kicker-icon{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:color-mix(in srgb,var(--market-accent) 16%,var(--bg4));border:1px solid color-mix(in srgb,var(--market-accent) 35%,var(--border-hi));font-size:18px;color:var(--market-accent)}
+  .featured-event-title{font-size:29px;font-weight:800;letter-spacing:-.04em;line-height:1.12;color:var(--text);margin-bottom:9px}
+  .featured-contract{font-size:14px;color:var(--text2);line-height:1.55;margin-bottom:14px}
+  .featured-description{font-size:13px;color:var(--text3);line-height:1.7;padding:13px 0 17px;border-bottom:1px solid var(--border);margin-bottom:4px}
   .featured-outcome-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
   .featured-outcome-name{flex:1;font-size:13px;font-weight:650;color:var(--text)}
   .featured-outcome-line{height:3px;min-width:45px;border-radius:4px}
-  .featured-outcome-pct{min-width:68px;text-align:center;padding:8px 12px;border:1px solid var(--green);border-radius:999px;font-size:15px;font-weight:800;color:var(--text)}
+  .featured-outcome-pct{min-width:72px;text-align:center;padding:8px 12px;border:1px solid currentColor;border-radius:999px;font-size:16px;font-weight:850;color:var(--text)}
   .featured-chart-wrap{min-height:230px;display:flex;flex-direction:column;justify-content:center}
   .featured-chart-legend{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px;font-size:11px;color:var(--text3)}
   .featured-chart-legend strong{color:var(--text2)}
-  .featured-chart{width:100%;height:210px;overflow:visible}
+  .featured-chart{width:100%;height:235px;overflow:visible;filter:drop-shadow(0 0 12px color-mix(in srgb,var(--market-accent) 18%,transparent))}
   .linked-market-card{padding:17px 18px 15px;background:linear-gradient(180deg,rgba(255,255,255,.018),var(--bg2));border-radius:18px}
-  .linked-market-card.is-expanded{border-color:rgba(0,208,132,.5);box-shadow:0 0 0 1px rgba(0,208,132,.12)}
+  .linked-market-card.is-expanded{border-color:var(--market-accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--market-accent) 20%,transparent)}
   .linked-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
   .linked-card-kind{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--text2)}
   .linked-card-icon{width:29px;height:29px;border-radius:8px;display:grid;place-items:center;background:var(--bg4);border:1px solid var(--border-hi)}
@@ -263,19 +266,6 @@
   .msg-bubble-me{background:var(--accent);color:#fff;border-radius:14px 14px 4px 14px}
   .msg-bubble-them{background:var(--bg4);color:var(--text);border-radius:14px 14px 14px 4px}
 
-  /* FEED */
-  .feed-wrap{max-width:480px;margin:0 auto}
-  .feed-post{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:14px;overflow:hidden}
-  .feed-post-header{display:flex;align-items:center;gap:10px;padding:14px 16px}
-  .feed-avatar{width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0}
-  .feed-avatar-student{background:var(--bg4);color:var(--text2)}
-  .feed-author{font-size:13px;font-weight:600;color:var(--text)}
-  .feed-time{font-size:11px;color:var(--text3);margin-top:1px}
-  .feed-admin-badge{font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;background:var(--accent-bg);color:var(--accent);padding:2px 7px;border-radius:10px;border:1px solid var(--accent-dim);margin-left:6px;vertical-align:middle}
-  .feed-caption{padding:4px 16px 12px;font-size:14px;color:var(--text);line-height:1.55}
-  .feed-market-embed{margin:0 16px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
-  .feed-market-label{font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
-  .feed-market-q{font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;line-height:1.4}
   .bj-table-surface{position:relative;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 18px 40px rgba(6,6,16,0.4)}
   .bj-table-surface::before{content:'';position:absolute;inset:-20% -10% auto;height:180px;background:radial-gradient(circle at top,rgba(124,106,247,0.18),transparent 68%);pointer-events:none;opacity:0.9}
   .bj-table-surface::after{content:'';position:absolute;inset:auto 12% 12px;height:1px;background:linear-gradient(90deg,transparent,rgba(240,192,64,0.3),transparent);pointer-events:none}
@@ -339,17 +329,6 @@
     0%{opacity:0.4;transform:translateY(8px)}
     100%{opacity:1;transform:translateY(0)}
   }
-  .feed-bar-wrap{margin-bottom:5px}
-  .feed-bar-label{display:flex;justify-content:space-between;font-size:11px;font-weight:600;margin-bottom:3px}
-  .feed-bar{height:3px;border-radius:2px;background:var(--bg4);overflow:hidden}
-  .feed-actions{display:flex;align-items:center;gap:16px;padding:8px 16px 12px}
-  .feed-action-btn{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--text3);cursor:pointer;background:none;border:none;font-family:'Inter',sans-serif;padding:0;transition:color 0.15s}
-  .feed-action-btn:hover{color:var(--text2)}
-  .feed-action-btn.liked{color:var(--red)}
-  .feed-compose{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:18px}
-  .feed-compose textarea{background:var(--bg3);border:1px solid var(--border-hi);border-radius:var(--radius);padding:10px 12px;font-size:14px;color:var(--text);width:100%;resize:none;min-height:80px;outline:none;font-family:'Inter',sans-serif}
-  .feed-compose textarea:focus{border-color:var(--accent)}
-
   /* PROFILE MODAL */
   .profile-modal{max-width:400px}
   .profile-header{text-align:center;padding:20px 0 16px}
@@ -359,23 +338,6 @@
   .profile-stats{display:flex;justify-content:center;gap:32px;padding:14px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:12px 0}
   .profile-stat-num{font-size:20px;font-weight:700;color:var(--text);text-align:center}
   .profile-stat-label{font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);text-align:center;margin-top:2px}
-  /* JEWGRAM STORIES */
-  .jewgram-bar{width:100%;overflow-x:auto;display:flex;gap:16px;padding:4px 0 16px;margin-bottom:18px;scrollbar-width:none;}
-  .jewgram-bar::-webkit-scrollbar{display:none;}
-  .jewgram-story{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;}
-  .jewgram-ring{width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#e040fb);padding:2px;transition:transform 0.15s;}
-  .jewgram-ring:hover{transform:scale(1.07);}
-  .jewgram-avatar{width:100%;height:100%;border-radius:50%;background:var(--bg4);border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--text2);}
-  .jewgram-name{font-size:10px;color:var(--text3);max-width:58px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-
-  /* FEED IMAGE */  .feed-post-image{width:100%;max-height:480px;object-fit:cover;display:block;}
-
-  /* IMAGE UPLOAD */
-  .img-upload-btn{display:flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border-hi);border-radius:20px;background:var(--bg3);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.15s;}
-  .img-upload-btn:hover{border-color:var(--accent);color:var(--accent);}
-  .img-preview-wrap{position:relative;margin-top:10px;}
-  .img-preview{width:100%;max-height:200px;object-fit:cover;border-radius:var(--radius);border:1px solid var(--border);}
-  .img-remove-btn{position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);border:none;color:#fff;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
   .assistance-grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px}
   .assistance-stack{display:flex;flex-direction:column;gap:16px}
   .assistance-list{display:flex;flex-direction:column;gap:10px}
@@ -582,7 +544,7 @@
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
             <div>
               <div style="font-size:16px;font-weight:700;color:var(--text);">Notifications</div>
-              <div style="font-size:12px;color:var(--text3);margin-top:3px;">Bet wins, new messages, and sclgram activity.</div>
+              <div style="font-size:12px;color:var(--text3);margin-top:3px;">Bet wins, account updates, and new messages.</div>
             </div>
             <button class="btn-admin btn-sm" onclick="markAllNotificationsRead()">Mark all read</button>
           </div>
@@ -596,7 +558,6 @@
   <div class="nav-tabs">
     <div class="nav-tab active" data-tab="markets" onclick="switchTab('markets')">Markets</div>
     <div class="nav-tab" data-tab="casino" onclick="switchTab('casino')">Casino</div>
-    <div class="nav-tab" data-tab="feed" onclick="switchTab('feed')">sclgram</div>
     <div class="nav-tab" data-tab="portfolio" onclick="switchTab('portfolio')">My Bets</div>
     <div class="nav-tab" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</div>
     <div class="nav-tab" data-tab="messages" onclick="switchTab('messages')">Messages <span id="msg-badge" style="display:none;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></div>
@@ -1181,14 +1142,6 @@
       </div>
     </div>
 
-    <!-- FEED -->
-    <div id="tab-feed" class="tab-content">
-      <div class="feed-wrap">
-        <div id="feed-compose-wrap"></div>
-        <div id="feed-list"><div class="loading">Loading feed…</div></div>
-      </div>
-    </div>
-
     <!-- PORTFOLIO -->
     <div id="tab-portfolio" class="tab-content">
       <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:4px;">My Bets</h2>
@@ -1476,6 +1429,7 @@
         <div class="panel">
           <div class="panel-title">Create Market</div>
           <div class="form-group"><label>Question</label><input type="text" id="new-market-q" placeholder="Will the Eagles win?"></div>
+          <div class="form-group"><label>Description</label><textarea id="new-market-description" placeholder="Add context, relevant facts, and what determines the outcome."></textarea></div>
           <div class="admin-form-row">
             <div class="form-group"><label>Type</label>
               <select id="new-market-type" onchange="toggleLineInput()"><option value="binary">Yes / No</option><option value="overunder">Over / Under</option></select>
@@ -2559,7 +2513,6 @@ async function renderExchangeTab(){
 
 const TAB_ROUTES={
   markets:'/',
-  feed:'/feed',
   portfolio:'/portfolio',
   leaderboard:'/leaderboard',
   messages:'/messages',
@@ -2596,7 +2549,6 @@ function switchTab(tab,{updateHistory=true,replace=false}={}){
     history[replace?'replaceState':'pushState']({tab},'',TAB_ROUTES[tab]);
   }
   if(tab==='markets')renderMarkets();
-  if(tab==='feed')renderFeed();
   if(tab==='portfolio')renderPortfolio();
   if(tab==='leaderboard')renderLeaderboard();
   if(tab==='messages')renderMessages();
@@ -3466,20 +3418,36 @@ function marketCategoryIcon(category){
   if(value.includes('fun'))return '◉';
   return '◆';
 }
-function featuredProbabilitySvg(history){
+function marketAccent(category){
+  const value=String(category||'').toLowerCase();
+  if(value.includes('sport'))return '#23d6a0';
+  if(value.includes('school'))return '#7c6af7';
+  if(value.includes('fun'))return '#ff9f43';
+  return '#39c9ff';
+}
+function marketDescription(market,parts){
+  const supplied=String(market?.description||'').trim();
+  if(supplied)return supplied;
+  if(parts.contract&&parts.contract!=='Student-priced YES / NO market')return parts.contract;
+  return `Follow the live Sclshi probability as students trade this ${String(market?.category||'campus').toLowerCase()} market. The final result is determined by the stated question and resolution source.`;
+}
+function featuredProbabilitySvg(history,primaryLabel='YES',secondaryLabel='NO'){
   const values=(history||[]).map(point=>Math.max(0,Math.min(100,Number(point.yes_pct||50))));
   if(values.length<2)values.push(values[0]??50);
+  const times=(history||[]).map(point=>Number(point.timestamp||Date.now()));
   const width=620,height=190,padX=12,padY=13;
   const x=index=>padX+(index/(values.length-1))*(width-padX*2);
   const y=value=>padY+((100-value)/100)*(height-padY*2);
   const yesPoints=values.map((value,index)=>`${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
   const noPoints=values.map((value,index)=>`${x(index).toFixed(1)},${y(100-value).toFixed(1)}`).join(' ');
   const lastX=x(values.length-1),lastYes=y(values.at(-1)),lastNo=y(100-values.at(-1));
-  return `<svg class="featured-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Student implied probability history">
+  const timeLabels=[0,Math.floor((values.length-1)/2),values.length-1].map((index,labelIndex)=>({index,label:new Date(times[index]||Date.now()).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),anchor:labelIndex===0?'start':labelIndex===2?'end':'middle'}));
+  return `<svg class="featured-chart" viewBox="0 0 ${width} ${height+20}" preserveAspectRatio="none" role="img" aria-label="${esc(primaryLabel)} and ${esc(secondaryLabel)} implied probability history">
     ${[0,25,50,75,100].map(value=>`<line x1="0" y1="${y(value)}" x2="${width}" y2="${y(value)}" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 6"/><text x="${width-2}" y="${y(value)-4}" text-anchor="end" fill="rgba(255,255,255,.34)" font-size="9">${value}%</text>`).join('')}
     <polyline points="${noPoints}" fill="none" stroke="rgba(255,255,255,.78)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-    <polyline points="${yesPoints}" fill="none" stroke="var(--green)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-    <circle cx="${lastX}" cy="${lastNo}" r="6" fill="#fff"/><circle cx="${lastX}" cy="${lastYes}" r="5" fill="var(--green)"/>
+    <polyline points="${yesPoints}" fill="none" stroke="var(--market-accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    <circle cx="${lastX}" cy="${lastNo}" r="6" fill="#fff"/><circle cx="${lastX}" cy="${lastYes}" r="6" fill="var(--market-accent)"/>
+    ${timeLabels.map(item=>`<text x="${x(item.index)}" y="${height+16}" text-anchor="${item.anchor}" fill="rgba(255,255,255,.38)" font-size="10">${esc(item.label)}</text>`).join('')}
   </svg>`;
 }
 let expandedLinkedMarketId=null;
@@ -3489,28 +3457,33 @@ function renderFeaturedLinkedMarket(data){
   const market=data?.market;
   if(!market){container.innerHTML='';return;}
   const parts=splitLinkedMarketQuestion(market.question);
-  const yp=getYesPercent(market),np=100-yp;
+  const isOU=market.market_type==='overunder';
+  const yp=isOU?getOverPercent(market):getYesPercent(market),np=100-yp;
+  const primaryLabel=isOU?'OVER':'YES',secondaryLabel=isOU?'UNDER':'NO';
+  const accent=marketAccent(market.category);
   const bettingOpen=isMarketBettingOpen(market);
-  container.innerHTML=`<div class="featured-linked-market">
+  container.innerHTML=`<div class="featured-linked-market" style="--market-accent:${accent}">
     <div>
-      <div class="featured-kicker"><span class="featured-kicker-icon">${marketCategoryIcon(market.category)}</span><span>Expanded student market</span></div>
+      <div class="featured-kicker"><span class="featured-kicker-icon">${marketCategoryIcon(market.category)}</span><span>${esc(market.category||'Market')} · ${bettingOpen?'Live':'Closed'}</span></div>
       <div class="featured-event-title">${esc(parts.event)}</div>
       <div class="featured-contract">${esc(parts.contract)}</div>
+      <div class="featured-description"><strong style="color:var(--text2)">Market brief · </strong>${esc(marketDescription(market,parts))}</div>
       <div class="market-countdown" data-close="${esc(market.close_date||'')}">Time remaining: ${formatMarketTimeRemaining(market.close_date)}</div>
-      <div class="featured-outcome-row"><span class="featured-outcome-name">YES</span><span class="featured-outcome-line" style="width:${Math.max(45,yp*1.4)}px;background:var(--green)"></span><span class="featured-outcome-pct">${yp}%</span></div>
-      <div class="featured-outcome-row"><span class="featured-outcome-name">NO</span><span class="featured-outcome-line" style="width:${Math.max(45,np*1.4)}px;background:rgba(255,255,255,.75)"></span><span class="featured-outcome-pct">${np}%</span></div>
-      <div style="display:flex;justify-content:space-between;gap:10px;margin-top:14px;font-size:11px;color:var(--text3);"><span>⬡ ${(market.pool||0).toLocaleString()} student volume</span><span>Outcome linked</span></div>
-      <div class="expanded-market-actions">${bettingOpen?`<button class="expanded-market-trade" onclick="openBetModal('${market.id}')">Predict with CampusBucks</button>`:''}<button class="expanded-market-close" onclick="collapseLinkedMarket()">Collapse</button></div>
+      <div class="featured-outcome-row"><span class="featured-outcome-name">${primaryLabel}</span><span class="featured-outcome-line" style="width:${Math.max(45,yp*1.4)}px;background:var(--market-accent)"></span><span class="featured-outcome-pct" style="color:var(--market-accent)">${yp}%</span></div>
+      <div class="featured-outcome-row"><span class="featured-outcome-name">${secondaryLabel}</span><span class="featured-outcome-line" style="width:${Math.max(45,np*1.4)}px;background:rgba(255,255,255,.75)"></span><span class="featured-outcome-pct">${np}%</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-top:14px;font-size:11px;color:var(--text3);"><span>⬡ ${(market.pool||0).toLocaleString()} student volume</span><span>${market.source==='kalshi'?'Kalshi-linked resolution':'Sclshi market'}</span></div>
+      <div class="expanded-market-actions">${bettingOpen?`<button class="expanded-market-trade" onclick="openBetModal('${market.id}')">Bet with credits</button>`:''}<button class="expanded-market-close" onclick="collapseLinkedMarket()">Collapse</button></div>
     </div>
-    <div class="featured-chart-wrap"><div class="featured-chart-legend"><strong>Student probability history</strong><span><i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;"></i>YES ${yp}% &nbsp; <i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#fff;margin-right:5px;"></i>NO ${np}%</span></div>${featuredProbabilitySvg(data.history)}</div>
+    <div class="featured-chart-wrap"><div class="featured-chart-legend"><strong>Live probability</strong><span><i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--market-accent);margin-right:5px;"></i>${primaryLabel} ${yp}% &nbsp; <i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#fff;margin-right:5px;"></i>${secondaryLabel} ${np}%</span></div>${featuredProbabilitySvg(data.history,primaryLabel,secondaryLabel)}</div>
   </div>`;
+  updateMarketCountdowns();
 }
 async function toggleLinkedMarket(marketId){
   if(expandedLinkedMarketId===marketId){collapseLinkedMarket();return;}
   expandedLinkedMarketId=marketId;
   const container=document.getElementById('featured-linked-market');
   if(container)container.innerHTML='<div class="featured-linked-market"><div class="loading">Loading student probability history…</div></div>';
-  document.querySelectorAll('.linked-market-card').forEach(card=>card.classList.toggle('is-expanded',card.dataset.marketId===marketId));
+  document.querySelectorAll('.market-card[data-market-id]').forEach(card=>card.classList.toggle('is-expanded',card.dataset.marketId===marketId));
   try{
     const data=await api('GET',`/markets/${encodeURIComponent(marketId)}/history`);
     if(expandedLinkedMarketId!==marketId)return;
@@ -3521,7 +3494,7 @@ async function toggleLinkedMarket(marketId){
 function collapseLinkedMarket(){
   expandedLinkedMarketId=null;
   renderFeaturedLinkedMarket({market:null,history:[]});
-  document.querySelectorAll('.linked-market-card').forEach(card=>card.classList.remove('is-expanded'));
+  document.querySelectorAll('.market-card[data-market-id]').forEach(card=>card.classList.remove('is-expanded'));
 }
 async function renderMarkets(){
   const grid=document.getElementById('markets-grid');
@@ -3554,7 +3527,7 @@ async function renderMarkets(){
     if(m.source==='kalshi'){
       const parts=splitLinkedMarketQuestion(m.question);
       const yp=getYesPercent(m),np=100-yp;
-      return `<div class="market-card linked-market-card ${expandedLinkedMarketId===m.id?'is-expanded':''}" data-market-id="${m.id}" onclick="toggleLinkedMarket('${m.id}')">
+      return `<div class="market-card linked-market-card ${expandedLinkedMarketId===m.id?'is-expanded':''}" style="--market-accent:${marketAccent(m.category)}" data-market-id="${m.id}" onclick="toggleLinkedMarket('${m.id}')">
         <div class="linked-card-head"><div class="linked-card-kind"><span class="linked-card-icon">${marketCategoryIcon(m.category)}</span>${esc(m.category||'Market')}</div><span class="status-tag ${bettingOpen?'status-open':'status-closed'}">${bettingOpen?'Live':'Closed'}</span></div>
         <div class="linked-card-event">${esc(parts.event)}</div>
         <div class="linked-card-contract">${esc(parts.contract)}</div>
@@ -3566,10 +3539,10 @@ async function renderMarkets(){
         <div class="market-meta"><span>⬡ ${(m.pool||0).toLocaleString()} student volume</span><span>Outcome linked</span></div>
       </div>`;
     }
-    return `<div class="market-card ${bettingOpen?'':'resolved'}" onclick="${bettingOpen?`openBetModal('${m.id}')`:'' }">
+    return `<div class="market-card ${bettingOpen?'':'resolved'} ${expandedLinkedMarketId===m.id?'is-expanded':''}" style="--market-accent:${marketAccent(m.category)}" data-market-id="${m.id}" onclick="toggleLinkedMarket('${m.id}')">
       ${isOU?`<span class="market-type-badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-dim);">Over/Under</span>`:''}
       ${m.source==='kalshi'?`<span class="market-type-badge" style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim);${isOU?'margin-left:6px;':''}">Outcome linked</span>`:''}
-      <div class="market-category">${m.category}</div>
+      <div class="market-category" style="color:var(--market-accent)">${esc(m.category||'Market')}</div>
       <div class="market-title">${esc(m.question)}</div>
       ${isOU?`<div class="market-line">Line: ${m.line}</div>`:''}
       <div class="market-countdown" data-close="${esc(m.close_date||'')}">Time remaining: ${formatMarketTimeRemaining(m.close_date)}</div>
@@ -3648,141 +3621,6 @@ async function placeBet(){
     await api('POST','/bets',{marketId:currentBetMarket.id,side:currentBetSide,amount});
     closeBetModal();await refreshUser();await renderMarkets();showToast(`Bet placed — ⬡ ${amount} on ${currentBetSide}`);
   }catch(e){alert(e.message);}
-}
-
-// ── FEED ──
-async function renderFeed(){
-  const composeWrap=document.getElementById('feed-compose-wrap');
-  if(currentUser.role==='admin'){
-    composeWrap.innerHTML=`<div class="feed-compose">
-      <textarea id="feed-caption-input" placeholder="Post an update, market callout, or announcement…"></textarea>
-      <div id="img-preview-wrap" style="display:none;" class="img-preview-wrap">
-        <img id="img-preview" class="img-preview" src="">
-        <button class="img-remove-btn" onclick="removePostImage()">✕</button>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
-        <label class="img-upload-btn">
-          📷 Add Photo
-          <input type="file" id="post-image-input" accept="image/*" style="display:none;" onchange="handlePostImage(this)">
-        </label>
-        <button class="btn-admin" onclick="createPost()">Post</button>
-      </div>
-    </div>`;
-  } else { composeWrap.innerHTML=''; }
-  await Promise.all([loadJewGram(), loadFeed()]);
-}
-
-async function loadJewGram(){
-  try{
-    const lb=await api('GET','/leaderboard');
-    const withProfile=lb.filter(u=>u.on_email_list&&u.id!==currentUser.id);
-    const feedEl=document.getElementById('feed-list');
-    let bar=document.getElementById('jewgram-bar');
-    if(!bar){
-      bar=document.createElement('div');
-      bar.id='jewgram-bar';
-      bar.className='jewgram-bar';
-      feedEl.parentNode.insertBefore(bar,feedEl);
-    }
-    if(!withProfile.length){bar.style.display='none';return;}
-    bar.style.display='flex';
-    bar.innerHTML=withProfile.map(u=>`
-      <div class="jewgram-story" onclick="openProfile('${esc(u.id)}')">
-        <div class="jewgram-ring">
-          <div class="jewgram-avatar">${initials(esc(u.name))}</div>
-        </div>
-        <div class="jewgram-name">${esc(u.name.split(' ')[0])}</div>
-      </div>`).join('');
-  }catch(e){}
-}
-
-let postImageBase64=null;
-
-function handlePostImage(input){
-  const file=input.files[0];
-  if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    const img=new Image();
-    img.onload=function(){
-      const canvas=document.createElement('canvas');
-      const maxW=800;
-      const scale=img.width>maxW?maxW/img.width:1;
-      canvas.width=Math.round(img.width*scale);
-      canvas.height=Math.round(img.height*scale);
-      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-      postImageBase64=canvas.toDataURL('image/jpeg',0.82);
-      document.getElementById('img-preview').src=postImageBase64;
-      document.getElementById('img-preview-wrap').style.display='block';
-    };
-    img.src=e.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function removePostImage(){
-  postImageBase64=null;
-  document.getElementById('img-preview').src='';
-  document.getElementById('img-preview-wrap').style.display='none';
-  document.getElementById('post-image-input').value='';
-}
-
-async function createPost(){
-  const caption=document.getElementById('feed-caption-input').value.trim();
-  if(!caption&&!postImageBase64){alert('Write something or add a photo.');return;}
-  try{
-    await api('POST','/posts',{caption:caption||'📷',image:postImageBase64||null});
-    document.getElementById('feed-caption-input').value='';
-    removePostImage();
-    await loadFeed();
-    showToast('Posted!');
-  }catch(e){alert(e.message);}
-}
-
-async function loadFeed(){
-  const posts=await api('GET','/feed');
-  const el=document.getElementById('feed-list');
-  if(!posts.length){el.innerHTML='<div class="empty-state"><div class="icon">📰</div><p>No posts yet.</p></div>';return;}
-  el.innerHTML=posts.map(p=>renderPost(p)).join('');
-}
-
-function renderPost(p){
-  const av=initials(p.author_name);
-  const isAdmin=p.author_role==='admin';
-  return `<div class="feed-post">
-    <div class="feed-post-header">
-      <div class="feed-avatar ${isAdmin?'':'feed-avatar-student'}">${av}</div>
-      <div style="flex:1;">
-        <div class="feed-author">${esc(p.author_name)}${isAdmin?`<span class="feed-admin-badge">admin</span>`:''}</div>
-        <div class="feed-time">${timeAgo(p.timestamp)}</div>
-      </div>
-      ${currentUser.role==='admin'?`<button class="btn-admin btn-sm btn-danger" onclick="deletePost('${p.id}')">Delete</button>`:''}
-    </div>
-    ${p.image?`<img class="feed-post-image" src="${p.image}" alt="post image">`:''}
-    <div class="feed-caption">${esc(p.caption)}</div>
-    <div class="feed-actions">
-      <button class="feed-action-btn ${p.user_liked?'liked':''}" onclick="toggleLike('${p.id}',this)">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="${p.user_liked?'#ff4560':'none'}" stroke="${p.user_liked?'#ff4560':'#55556a'}" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-        <span class="feed-action-count">${p.like_count}</span>
-      </button>
-    </div>
-  </div>`;
-}
-
-async function deletePost(id){
-  if(!confirm('Delete this post?'))return;
-  try{await api('DELETE','/posts/'+id);await loadFeed();}catch(e){alert(e.message);}
-}
-
-async function toggleLike(postId,btn){
-  try{
-    const data=await api('POST','/posts/'+postId+'/like');
-    const svg=btn.querySelector('svg');
-    const count=btn.querySelector('.feed-action-count');
-    const current=parseInt(count.textContent)||0;
-    if(data.liked){btn.classList.add('liked');svg.setAttribute('fill','#ff4560');svg.setAttribute('stroke','#ff4560');count.textContent=current+1;}
-    else{btn.classList.remove('liked');svg.setAttribute('fill','none');svg.setAttribute('stroke','#55556a');count.textContent=Math.max(0,current-1);}
-  }catch(e){}
 }
 
 // ── PROFILE ──
@@ -4268,7 +4106,6 @@ async function showNewDM(){
 function notificationLinkLabel(link){
   if(link==='messages') return 'Open Messages';
   if(link==='portfolio') return 'Open My Bets';
-  if(link==='feed') return 'Open sclgram';
   return 'Open';
 }
 function setNotificationsPanelOpen(open){
@@ -5616,6 +5453,7 @@ async function syncKalshiMarketsNow(){
 }
 async function createMarket(){
   const question=document.getElementById('new-market-q').value.trim();
+  const description=document.getElementById('new-market-description').value.trim();
   const category=document.getElementById('new-market-cat').value;
   const closeDateValue=document.getElementById('new-market-close').value;
   const market_type=document.getElementById('new-market-type').value;
@@ -5625,8 +5463,8 @@ async function createMarket(){
   if(Number.isNaN(closeDate.getTime())){alert('Enter a valid close time.');return;}
   if(market_type==='overunder'&&(isNaN(line)||line===null)){alert('Please enter a line.');return;}
   try{
-    await api('POST','/markets',{question,category,closeDate:closeDate.toISOString(),market_type,line});
-    document.getElementById('new-market-q').value='';document.getElementById('new-market-close').value='';document.getElementById('new-market-line').value='';
+    await api('POST','/markets',{question,description,category,closeDate:closeDate.toISOString(),market_type,line});
+    document.getElementById('new-market-q').value='';document.getElementById('new-market-description').value='';document.getElementById('new-market-close').value='';document.getElementById('new-market-line').value='';
     renderAdminTab();showToast('Market created!');
   }catch(e){alert(e.message);}
 }
@@ -6874,7 +6712,7 @@ function setCoinFlipBet(amount){
 function updateCoinFlipPotential(){
   const betAmount=Math.floor(Number(document.getElementById('coinflip-bet-input')?.value)||0);
   const el=document.getElementById('coinflip-potential');
-  if(el) el.textContent='⬡ '+(betAmount>0?betAmount*2:0).toLocaleString();
+  if(el) el.textContent='⬡ '+(betAmount>0?Math.floor(betAmount*1.98):0).toLocaleString();
 }
 
 async function flipCoin(){

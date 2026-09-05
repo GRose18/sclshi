@@ -70,6 +70,9 @@ const BETS_MINE_CACHE_TTL_MS = 10000;
 const betsMineCache = new Map();
 let betsSnapshotVersion = 0;
 const CASINO_ENABLED = true;
+const MAX_CASINO_BET = 1_000_000_000;
+const casinoMutationLocks = new Set();
+const casinoActionWindows = new Map();
 const NOTIFICATIONS_CACHE_TTL_MS = 15000;
 const notificationsListCache = new Map();
 const notificationsUnreadCache = new Map();
@@ -136,7 +139,8 @@ app.get(/^\/casino(?:\/.*)?$/, (req, res) => {
   res.redirect('/');
 });
 
-const APP_TAB_ROUTES = ['/feed', '/portfolio', '/leaderboard', '/messages', '/suggestions', '/exchange', '/assistance', '/popup', '/admin'];
+app.get('/feed', (req,res)=>res.redirect('/'));
+const APP_TAB_ROUTES = ['/portfolio', '/leaderboard', '/messages', '/suggestions', '/exchange', '/assistance', '/popup', '/admin'];
 app.get(APP_TAB_ROUTES, (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
@@ -152,7 +156,19 @@ const CRASH_COUNTDOWN_MS = 3000;
 const CRASH_RESULT_MS = 1200;
 const CRASH_TICK_MS = 100;
 function newCrashRoundId(){return generateId('crr');}
-function newCrashThreshold(){return Math.max(1,Math.floor((0.99/(1-Math.random()))*100)/100);}
+function secureRandomFloat(){
+  return crypto.randomBytes(6).readUIntBE(0,6) / 0x1000000000000;
+}
+function secureRandomInt(maxExclusive){
+  if(!Number.isSafeInteger(maxExclusive) || maxExclusive<1) throw new Error('Invalid random range');
+  return crypto.randomInt(0,maxExclusive);
+}
+function parseCasinoBetAmount(value){
+  const numeric=Number(value);
+  if(!Number.isSafeInteger(numeric) || numeric<1 || numeric>MAX_CASINO_BET) return null;
+  return numeric;
+}
+function newCrashThreshold(){return Math.min(10000,Math.max(1,Math.floor((0.99/(1-secureRandomFloat()))*100)/100));}
 function makeCrashCountdown(id=newCrashRoundId(),now=Date.now()){
   return {id,nextRoundId:newCrashRoundId(),phase:'countdown',startsAt:now+CRASH_COUNTDOWN_MS,startedAt:null,crashedAt:null,threshold:null};
 }
@@ -288,7 +304,7 @@ async function initDB() {
       over_shares REAL DEFAULT 0, under_shares REAL DEFAULT 0,
       source TEXT DEFAULT NULL, source_market_id TEXT DEFAULT NULL,
       source_event_id TEXT DEFAULT NULL, source_status TEXT DEFAULT NULL,
-      source_updated_at INTEGER DEFAULT NULL
+      source_updated_at INTEGER DEFAULT NULL, description TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS market_probability_history (
       id TEXT PRIMARY KEY, market_id TEXT NOT NULL,
@@ -518,6 +534,7 @@ async function initDB() {
     await db.run("ALTER TABLE markets ADD COLUMN source_event_id TEXT DEFAULT NULL").catch(()=>{});
     await db.run("ALTER TABLE markets ADD COLUMN source_status TEXT DEFAULT NULL").catch(()=>{});
     await db.run("ALTER TABLE markets ADD COLUMN source_updated_at INTEGER DEFAULT NULL").catch(()=>{});
+    await db.run("ALTER TABLE markets ADD COLUMN description TEXT DEFAULT ''").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN rave_enabled INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN alert_enabled INTEGER DEFAULT 0").catch(()=>{});
     await db.run("ALTER TABLE popups ADD COLUMN alert_text TEXT DEFAULT ''").catch(()=>{});
@@ -586,6 +603,40 @@ app.use('/api/casino', authMiddleware, requireDesktopCasinoAccess);
 app.use('/api/admin/casino', authMiddleware, adminOnly, requireDesktopCasinoAccess);
 app.use('/api/matches', authMiddleware, requireDesktopCasinoAccess);
 app.use('/api/spin', authMiddleware, requireDesktopCasinoAccess);
+app.use('/api/casino',(req,res,next)=>{
+  if(req.method!=='POST') return next();
+  const key=String(req.user?.id||'');
+  if(!key) return res.status(401).json({error:'Authentication required'});
+  const now=Date.now();
+  const recent=(casinoActionWindows.get(key)||[]).filter(timestamp=>now-timestamp<60_000);
+  if(recent.length>=240){
+    const retryAfter=Math.max(1,Math.ceil((60_000-(now-recent[0]))/1000));
+    res.setHeader('Retry-After',String(retryAfter));
+    return res.status(429).json({error:'Too many casino actions. Please wait before trying again.'});
+  }
+  recent.push(now);
+  casinoActionWindows.set(key,recent);
+  if(casinoActionWindows.size>10_000){
+    for(const [userId,timestamps] of casinoActionWindows){
+      if(!timestamps.some(timestamp=>now-timestamp<60_000)) casinoActionWindows.delete(userId);
+    }
+  }
+  if(casinoMutationLocks.has(key)) return res.status(409).json({error:'Your previous casino action is still settling. Please wait a moment.'});
+  casinoMutationLocks.add(key);
+  let released=false;
+  let releaseTimer;
+  const release=()=>{
+    if(released) return;
+    released=true;
+    if(releaseTimer) clearTimeout(releaseTimer);
+    casinoMutationLocks.delete(key);
+  };
+  res.once('finish',release);
+  // If a client disconnects while a balance update is still running, retain the
+  // lock until the handler settles instead of reopening a duplicate-action race.
+  releaseTimer=setTimeout(release,30_000);
+  next();
+});
 
 async function ensureProtectedSettings() {
   const popupPassword = await db.get('SELECT value FROM settings WHERE key=?',[POPUP_TAB_PASSWORD_KEY]);
@@ -598,7 +649,7 @@ async function ensureProtectedSettings() {
 async function seedIfEmpty() {
   const row = await db.get('SELECT COUNT(*) as c FROM users');
   if (row.c > 0) return;
-  const defaultAdminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Ozb!041611';
+  const defaultAdminPassword = getBootstrapSecret('INITIAL_ADMIN_PASSWORD', 'INITIAL_ADMIN_PASSWORD');
   const defaultAccessPassword = getBootstrapSecret('INITIAL_ACCESS_PASSWORD', 'INITIAL_ACCESS_PASSWORD');
   const users = [
     { id:'ADMIN', name:'Sclshi Admin', email:'admin@sclshi.com', password:defaultAdminPassword, role:'admin', credits:0, grade:'', school:'SCLSHI' },
@@ -713,8 +764,13 @@ const verifyCodeLimit = createRateLimit({
   max: 10,
   message: 'Too many verification attempts. Please wait and try again.',
 });
+const loginLimit = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: 'Too many login attempts. Please wait and try again.',
+});
 
-function generateId(p='') { return p+Date.now()+Math.random().toString(36).slice(2,6); }
+function generateId(p='') { return `${p}${Date.now()}${crypto.randomBytes(5).toString('hex')}`; }
 function generateToken() { return crypto.randomBytes(32).toString('hex'); }
 function clampNumber(value, min, max){
   return Math.min(max, Math.max(min, value));
@@ -823,7 +879,7 @@ function saveDataUrlToFile(dataUrl, originalName, allowedKinds){
 function shuffle(arr){
   const copy=[...arr];
   for(let i=copy.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
+    const j=secureRandomInt(i+1);
     [copy[i],copy[j]]=[copy[j],copy[i]];
   }
   return copy;
@@ -1081,6 +1137,8 @@ async function settleOnlineMatch(match, winnerId){
 async function finishBlackjackGame(userId){
   const game=blackjackGames.get(userId);
   if(!game) throw new Error('No active blackjack game');
+  if(game.done) throw new Error('Blackjack game is already settling');
+  game.done=true;
   const { effective } = await getCasinoConfig(userId);
   const blackjackOdds = effective.blackjackOdds;
   const dealerStandThreshold = clampNumber(Math.round(17 + ((blackjackOdds - 100) / 50)), 16, 18);
@@ -1090,6 +1148,7 @@ async function finishBlackjackGame(userId){
   }
 
   const dealerTotal=handTotal(game.dealerCards);
+  const dealerNatural=isBlackjack(game.dealerCards);
   let totalPayout=0;
   let totalBet=0;
   const results=game.playerHands.map((hand,idx)=>{
@@ -1097,11 +1156,18 @@ async function finishBlackjackGame(userId){
     const total=handTotal(hand);
     totalBet+=bet;
     if(total>21) return 'bust';
-    if(isBlackjack(hand)){
+    const playerNatural=game.playerHands.length===1 && isBlackjack(hand);
+    if(playerNatural&&dealerNatural){
+      totalPayout+=bet;
+      return 'push';
+    }
+    // A 21 made after splitting is a normal win, not a 3:2 natural blackjack.
+    if(playerNatural){
       const payout=Math.floor(bet*2.5);
       totalPayout+=payout;
       return 'blackjack';
     }
+    if(dealerNatural) return 'loss';
     if(dealerTotal>21 || total>dealerTotal){
       const payout=Math.floor(bet*2);
       totalPayout+=payout;
@@ -1126,7 +1192,6 @@ async function finishBlackjackGame(userId){
   await recordTx(userId, profit, 'casino_blackjack', betId, `Blackjack: ${outcome} on ⬡${totalBet}`);
   invalidateCasinoBetsCache(userId);
 
-  game.done=true;
   game.results=results;
   blackjackGames.delete(userId);
   const updated=await db.get('SELECT credits FROM users WHERE id=?',[userId]);
@@ -1520,14 +1585,14 @@ function pickRouletteNumber(winningSet, odds){
   const loseNumbers=ROULETTE_NUMBERS.filter(n=>!winningSet.has(n));
   const fairChance=winningSet.size/ROULETTE_NUMBERS.length;
   const adjustedChance=odds<=100 ? fairChance*(odds/100) : fairChance+(1-fairChance)*((odds-100)/100);
-  const useWin = Math.random() < adjustedChance;
+  const useWin = secureRandomFloat() < adjustedChance;
   const pool=(useWin?winNumbers:loseNumbers).length ? (useWin?winNumbers:loseNumbers) : (useWin?loseNumbers:winNumbers);
-  return pool[Math.floor(Math.random()*pool.length)];
+  return pool[secureRandomInt(pool.length)];
 }
 function makeMineSet(mineCount){
   const pool = Array.from({length:25}, (_, idx)=>idx);
   for(let i=pool.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
+    const j=secureRandomInt(i+1);
     [pool[i],pool[j]]=[pool[j],pool[i]];
   }
   return new Set(pool.slice(0, mineCount));
@@ -1537,7 +1602,8 @@ function getAdjustedSafeChance(baseSafeChance, slider, mineCount=0){
   if(slider>=200) return 1;
   if(mineCount>=20) return baseSafeChance;
   if(slider<100) return baseSafeChance * (slider/100);
-  const boost = 0.06 + (((slider - 100) / 100) * 0.94);
+  if(slider===100) return baseSafeChance;
+  const boost = ((slider - 100) / 100) * 0.94;
   const cappedBoost = mineCount>=15 ? Math.min(boost, 0.18) : boost;
   return Math.min(1, baseSafeChance + (1 - baseSafeChance) * cappedBoost);
 }
@@ -1574,7 +1640,7 @@ function flipMineCell(game, index, shouldBeSafe){
     if(shouldBeSafe ? !game.mineSet.has(idx) : game.mineSet.has(idx)) candidates.push(idx);
   }
   if(!candidates.length) return false;
-  const swapIndex = candidates[Math.floor(Math.random()*candidates.length)];
+  const swapIndex = candidates[secureRandomInt(candidates.length)];
   if(shouldBeSafe){
     game.mineSet.delete(index);
     game.mineSet.add(swapIndex);
@@ -1782,7 +1848,7 @@ app.post('/api/auth/resend-code', requestVerificationLimit, async(req,res)=>{
     const {pendingId}=req.body;
     const pending=await db.get('SELECT * FROM pending_registrations WHERE id=?',[pendingId]);
     if(!pending) return res.status(400).json({error:'Registration not found. Please register again.'});
-    const code=Math.floor(100000+Math.random()*900000).toString();
+    const code=String(secureRandomInt(900000)+100000);
     await db.run('UPDATE pending_registrations SET code=?,expires_at=? WHERE id=?',[code,Date.now()+600000,pendingId]);
     const sent=await sendVerificationEmail(pending.email,pending.name,code);
     if(!sent && process.env.NODE_ENV==='production') return res.status(503).json({error:'Email verification is not configured'});
@@ -2132,7 +2198,7 @@ app.get('/api/credits/verify/:sessionId', authMiddleware, async(req,res)=>{
 });
 
 // ── AUTH ──
-app.post('/api/auth/login', async(req,res)=>{
+app.post('/api/auth/login', loginLimit, async(req,res)=>{
   try{
     const {email,password,identifier}=req.body;
     const lookup=(identifier||email||'').trim();
@@ -2162,7 +2228,7 @@ app.post('/api/auth/register', requestVerificationLimit, async(req,res)=>{
       return res.status(409).json({error:'An account with that email already exists'});
     if(password.length<6) return res.status(400).json({error:'Password must be at least 6 characters'});
     const hash=await bcrypt.hash(password,10);
-    const code=Math.floor(100000+Math.random()*900000).toString();
+    const code=String(secureRandomInt(900000)+100000);
     const id=generateId('pending');
     await db.run('DELETE FROM pending_registrations WHERE LOWER(email)=LOWER(?)',[cleanEmail]);
     await db.run('INSERT INTO pending_registrations (id,name,email,phone,password,grade,school,code,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -2828,7 +2894,8 @@ async function syncKalshiMarkets(){
         if(local.status!==nextStatus){
           if(nextStatus==='closed') summary.closed++; else summary.reopened++;
         }
-        await db.run('UPDATE markets SET status=?,close_date=?,source_status=?,source_updated_at=?,question=CASE WHEN ?=1 THEN ? ELSE question END WHERE id=?',[nextStatus,closeDate,remoteStatus,Date.now(),improveQuestion?1:0,contextualQuestion,local.id]);
+        const description=String(remote.rules_primary||remote.subtitle||event?.sub_title||local.description||'').trim().slice(0,2000);
+        await db.run('UPDATE markets SET status=?,close_date=?,source_status=?,source_updated_at=?,description=?,question=CASE WHEN ?=1 THEN ? ELSE question END WHERE id=?',[nextStatus,closeDate,remoteStatus,Date.now(),description,improveQuestion?1:0,contextualQuestion,local.id]);
         summary.updated++;
       }catch(error){summary.errors.push({ticker:local.source_market_id,error:error.message});}
     }
@@ -2899,9 +2966,9 @@ app.post('/api/admin/kalshi/import',authMiddleware,adminOnly,async(req,res)=>{
     const status=(remoteStatus==='active'&&Date.parse(safe.closeDate)>Date.now())?'open':'closed';
     const id=generateId('m');
     await db.run(`INSERT INTO markets
-      (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,source,source_market_id,source_event_id,source_status,source_updated_at)
-      VALUES (?,?,?,?,?,0,0,100,0,?,'binary','kalshi',?,?,?,?)`,
-      [id,question,category,status,safe.closeDate,Date.now(),safe.ticker,safe.eventTicker,safe.status,Date.now()]);
+      (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,source,source_market_id,source_event_id,source_status,source_updated_at,description)
+      VALUES (?,?,?,?,?,0,0,100,0,?,'binary','kalshi',?,?,?,?,?)`,
+      [id,question,category,status,safe.closeDate,Date.now(),safe.ticker,safe.eventTicker,safe.status,Date.now(),String(safe.rules||safe.subtitle||'').slice(0,2000)]);
     await db.run('INSERT INTO market_probability_history (id,market_id,yes_pct,timestamp) VALUES (?,?,50,?)',[generateId('mph'),id,Date.now()]);
     bumpBetsSnapshotVersion();
     res.status(201).json(await db.get('SELECT * FROM markets WHERE id=?',[id]));
@@ -2932,8 +2999,8 @@ app.get('/api/markets-featured/linked',authMiddleware,async(req,res)=>{
   res.json({market,history});
 });
 app.get('/api/markets/:id/history',authMiddleware,async(req,res)=>{
-  const market=await db.get("SELECT * FROM markets WHERE id=? AND source='kalshi'",[req.params.id]);
-  if(!market) return res.status(404).json({error:'Linked market not found'});
+  const market=await db.get("SELECT * FROM markets WHERE id=?",[req.params.id]);
+  if(!market) return res.status(404).json({error:'Market not found'});
   let history=await db.all('SELECT yes_pct,timestamp FROM market_probability_history WHERE market_id=? ORDER BY timestamp DESC LIMIT 48',[market.id]);
   history=history.reverse();
   if(!history.length) history=[{yes_pct:50,timestamp:Number(market.created_at||Date.now())},{yes_pct:getYesPercent(market),timestamp:Date.now()}];
@@ -2948,17 +3015,18 @@ app.get('/api/markets/:id', authMiddleware, async(req,res)=>{
 app.post('/api/markets', authMiddleware, adminOnly, async(req,res)=>{
   try{
     const {question,category,closeDate,market_type,line}=req.body;
+    const description=String(req.body.description||'').trim().slice(0,2000);
     if(!question||!closeDate) return res.status(400).json({error:'Missing fields'});
     if(market_type==='overunder'&&(line===undefined||line===null)) return res.status(400).json({error:'Line required'});
     const normalizedCloseDate=normalizeCloseDate(closeDate);
     if(!normalizedCloseDate) return res.status(400).json({error:'Invalid close date'});
     const id=generateId('m');
     if(market_type==='overunder'){
-      await db.run(`INSERT INTO markets (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,line,over_shares,under_shares) VALUES (?,?,?,'open',?,0,0,100,0,?,?,?,0,0)`,
-        [id,question,category||'Sports',normalizedCloseDate,Date.now(),'overunder',line]);
+      await db.run(`INSERT INTO markets (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,line,over_shares,under_shares,description) VALUES (?,?,?,'open',?,0,0,100,0,?,?,?,0,0,?)`,
+        [id,question,category||'Sports',normalizedCloseDate,Date.now(),'overunder',line,description]);
     } else {
-      await db.run(`INSERT INTO markets (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type) VALUES (?,?,?,'open',?,0,0,100,0,?,'binary')`,
-        [id,question,category||'General',normalizedCloseDate,Date.now()]);
+      await db.run(`INSERT INTO markets (id,question,category,status,close_date,yes_shares,no_shares,b_param,pool,created_at,market_type,description) VALUES (?,?,?,'open',?,0,0,100,0,?,'binary',?)`,
+        [id,question,category||'General',normalizedCloseDate,Date.now(),description]);
     }
     res.json(await db.get('SELECT * FROM markets WHERE id=?',[id]));
   }catch(e){res.status(500).json({error:e.message});}
@@ -3170,7 +3238,7 @@ app.post('/api/matches/:id/action', authMiddleware, async(req,res)=>{
     if(match.game_type==='dreidel'){
       if(action!=='spin') return res.status(400).json({error:'Unsupported dreidel action'});
       const spins=['N','G','H','S'];
-      const spin=spins[Math.floor(Math.random()*spins.length)];
+      const spin=spins[secureRandomInt(spins.length)];
       applyDreidelSpin(state, req.user.id, spin);
       match=await saveOnlineMatch(match.id, state);
       if(state.phase==='finished'){
@@ -3431,78 +3499,6 @@ app.post('/api/notifications/:id/read', authMiddleware, async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-// ── POSTS / FEED ──
-app.get('/api/feed', authMiddleware, async(req,res)=>{
-  try{
-    const posts = await db.all(`SELECT p.*,u.name as author_name,u.role as author_role FROM posts p JOIN users u ON p.user_id=u.id ORDER BY p.timestamp DESC LIMIT 50`);
-    if(!posts.length) return res.json([]);
-    const postIds = posts.map(post=>post.id);
-    const placeholders = postIds.map(()=>'?').join(',');
-    const [allLikes, likedRows] = await Promise.all([
-      db.all(`SELECT post_id, COUNT(*) as c FROM post_likes WHERE post_id IN (${placeholders}) GROUP BY post_id`, postIds),
-      db.all(`SELECT post_id FROM post_likes WHERE user_id=? AND post_id IN (${placeholders})`, [req.user.id, ...postIds]),
-    ]);
-
-    const userLikes=new Set(likedRows.map(r=>r.post_id));
-    const likeCounts=Object.fromEntries(allLikes.map(r=>[r.post_id,r.c]));
-
-    const feed=posts.map(p=>({
-      ...p,
-      feed_type:'post',
-      feed_time:p.timestamp,
-      like_count:likeCounts[p.id]||0,
-      user_liked:userLikes.has(p.id),
-    }));
-
-    res.json(feed);
-  }catch(e){res.status(500).json({error:e.message});}
-});
-
-app.post('/api/posts', authMiddleware, adminOnly, async(req,res)=>{
-  try{
-    const {caption,image}=req.body;
-    if(!caption||!caption.trim()) return res.status(400).json({error:'Caption required'});
-    if(image&&image.length>2800000) return res.status(400).json({error:'Image too large'});
-    const id=generateId('post');
-    await db.run('INSERT INTO posts (id,user_id,caption,image,timestamp,repost_count) VALUES (?,?,?,?,?,0)',
-      [id,req.user.id,caption.trim(),image||null,Date.now()]);
-    const recipients = await db.all('SELECT id FROM users WHERE id!=?',[req.user.id]);
-    for(const recipient of recipients){
-      await createNotification(recipient.id,'sclgram_post','New SclGram Post',`${req.user.name||req.user.id} posted: ${caption.trim().slice(0,120)}`,'feed');
-    }
-    res.json(await db.get('SELECT * FROM posts WHERE id=?',[id]));
-  }catch(e){res.status(500).json({error:e.message});}
-});
-
-app.delete('/api/posts/:id', authMiddleware, adminOnly, async(req,res)=>{
-  try{
-    const id=req.params.id;
-    await db.run('DELETE FROM post_likes WHERE post_id=?',[id]);
-    await db.run('DELETE FROM post_reposts WHERE post_id=?',[id]);
-    await db.run('DELETE FROM posts WHERE id=?',[id]);
-    res.json({success:true});
-  }catch(e){res.status(500).json({error:e.message});}
-});
-
-app.post('/api/posts/:id/like', authMiddleware, async(req,res)=>{
-  try{
-    const post = await db.get('SELECT p.id,p.user_id,p.caption,u.name as author_name FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?',[req.params.id]);
-    if(!post) return res.status(404).json({error:'Post not found'});
-    const existing=await db.get('SELECT id FROM post_likes WHERE post_id=? AND user_id=?',[req.params.id,req.user.id]);
-    if(existing){
-      await db.run('DELETE FROM post_likes WHERE post_id=? AND user_id=?',[req.params.id,req.user.id]);
-      res.json({liked:false});
-    } else {
-      await db.run('INSERT INTO post_likes (id,post_id,user_id,timestamp) VALUES (?,?,?,?)',
-        [generateId('lk'),req.params.id,req.user.id,Date.now()]);
-      if(post.user_id!==req.user.id){
-        await createNotification(post.user_id,'sclgram_like','SclGram Like',`${req.user.name||req.user.id} liked your post: ${String(post.caption||'').slice(0,120)}`,'feed');
-      }
-      res.json({liked:true});
-    }
-  }catch(e){res.status(500).json({error:e.message});}
-});
-
 // ── ADMIN ──
 app.post('/api/admin/distribute-credits', authMiddleware, adminOnly, async(req,res)=>{
   try{
@@ -3706,8 +3702,8 @@ app.get('/api/spin/status', authMiddleware, async(req,res)=>{
 // ── CASINO ──
 app.post('/api/casino/blackjack/deal', authMiddleware, async(req,res)=>{
   try{
-    const amount=Math.floor(Number(req.body.betAmount));
-    if(!amount || amount<1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    const amount=parseCasinoBetAmount(req.body.betAmount);
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     const existingGame=getActiveBlackjackGame(req.user.id);
     if(existingGame){const currentUser=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);return res.json({state:getVisibleBlackjackState(existingGame),canSplit:canSplitHand(getCurrentHand(existingGame)),canDouble:Math.floor(currentUser.credits)>=existingGame.bets[existingGame.activeHand],newBalance:Math.floor(currentUser.credits),resumed:true});}
     const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
@@ -3798,7 +3794,8 @@ app.post('/api/casino/blackjack/double', authMiddleware, async(req,res)=>{
     const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits)<extraBet) return res.status(400).json({error:'Insufficient credits'});
 
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[extraBet,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[extraBet,req.user.id,extraBet]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     game.bets[game.activeHand]+=extraBet;
     hand.push(game.deck.pop());
     if(handTotal(hand)>21) game.results[game.activeHand]='bust';
@@ -3831,7 +3828,8 @@ app.post('/api/casino/blackjack/split', authMiddleware, async(req,res)=>{
     const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits)<extraBet) return res.status(400).json({error:'Insufficient credits'});
 
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[extraBet,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[extraBet,req.user.id,extraBet]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     const [first,second]=hand;
     const newHandA=[first, game.deck.pop()];
     const newHandB=[second, game.deck.pop()];
@@ -3851,11 +3849,11 @@ app.post('/api/casino/blackjack/split', authMiddleware, async(req,res)=>{
 app.post('/api/casino/dice', authMiddleware, async(req,res)=>{
   try{
     const {betAmount, target, direction} = req.body;
-    const amount = Math.floor(Number(betAmount));
+    const amount = parseCasinoBetAmount(betAmount);
     const visibleTarget = Number(target);
-    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     if(!['over','under'].includes(direction)) return res.status(400).json({error:'Invalid direction'});
-    if(target===undefined||visibleTarget<2||visibleTarget>98) return res.status(400).json({error:'Target must be between 2 and 98'});
+    if(!Number.isFinite(visibleTarget)||visibleTarget<2||visibleTarget>98) return res.status(400).json({error:'Target must be between 2 and 98'});
     const user = await db.get('SELECT * FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
     const { effective } = await getCasinoConfig(req.user.id);
@@ -3864,7 +3862,7 @@ app.post('/api/casino/dice', authMiddleware, async(req,res)=>{
     const adjustedTarget = direction==='over'
       ? clampNumber(visibleTarget - oddsBias, 2, 98)
       : clampNumber(visibleTarget + oddsBias, 2, 98);
-    const randomBetween=(min,max)=>parseFloat((min + Math.random()*(max-min)).toFixed(2));
+    const randomBetween=(min,max)=>parseFloat((min + secureRandomFloat()*(max-min)).toFixed(2));
     const forceDisplayedLossRoll=()=>{
       if(direction==='over') return randomBetween(0, Math.max(0, visibleTarget));
       return randomBetween(Math.min(100, visibleTarget), 100);
@@ -3882,7 +3880,7 @@ app.post('/api/casino/dice', authMiddleware, async(req,res)=>{
       const effectiveWinChance = direction==='over'
         ? (100 - adjustedTarget) / 100
         : adjustedTarget / 100;
-      const won = Math.random() < effectiveWinChance;
+      const won = secureRandomFloat() < effectiveWinChance;
       roll = won ? forceDisplayedWinRoll() : forceDisplayedLossRoll();
     }
     const won = direction==='over' ? roll>visibleTarget : roll<visibleTarget;
@@ -3906,11 +3904,13 @@ app.post('/api/casino/dice', authMiddleware, async(req,res)=>{
 app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
   try{
     const {betAmount} = req.body;
-    const amount = Math.floor(Number(betAmount));
+    const amount = parseCasinoBetAmount(betAmount);
     const risk = String(req.body.risk || 'medium').toLowerCase();
-    const rows = clampNumber(Math.floor(Number(req.body.rows || 12)), 8, 16);
-    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    const requestedRows = Number(req.body.rows ?? 12);
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     if(!['low','medium','high'].includes(risk)) return res.status(400).json({error:'Invalid risk'});
+    if(!Number.isInteger(requestedRows)||requestedRows<8||requestedRows>16) return res.status(400).json({error:'Rows must be a whole number from 8 to 16'});
+    const rows = requestedRows;
     const user = await db.get('SELECT * FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
     const { effective } = await getCasinoConfig(req.user.id);
@@ -3943,10 +3943,10 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
     const extremeIndexes=multipliers.map((value,index)=>value===extremeValue?index:-1).filter(index=>index>=0);
     const extremeChance=extremeValue===baseRtp?0:clampNumber((desiredRtp-baseRtp)/(extremeValue-baseRtp),0,1);
     let slotIndex=0;
-    if(Math.random()<extremeChance){
-      slotIndex=extremeIndexes[Math.floor(Math.random()*extremeIndexes.length)];
+    if(secureRandomFloat()<extremeChance){
+      slotIndex=extremeIndexes[secureRandomInt(extremeIndexes.length)];
     }else{
-      let pick=Math.random()*totalBaseWeight;
+      let pick=secureRandomFloat()*totalBaseWeight;
       for(let i=0;i<baseWeights.length;i++){
         pick-=baseWeights[i];
         if(pick<=0){slotIndex=i;break;}
@@ -3954,7 +3954,7 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
     }
     const path = Array.from({length:rows}, (_, idx)=>idx < slotIndex ? 1 : 0);
     for(let i=path.length-1;i>0;i--){
-      const j=Math.floor(Math.random()*(i+1));
+      const j=secureRandomInt(i+1);
       [path[i],path[j]]=[path[j],path[i]];
     }
 
@@ -3991,9 +3991,11 @@ app.post('/api/casino/plinko', authMiddleware, async(req,res)=>{
 
 app.post('/api/casino/mines/start', authMiddleware, async(req,res)=>{
   try{
-    const amount = Math.floor(Number(req.body.betAmount));
-    const mineCount = clampNumber(Math.floor(Number(req.body.mineCount || 3)), 1, 24);
-    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    const amount = parseCasinoBetAmount(req.body.betAmount);
+    const requestedMineCount = Number(req.body.mineCount ?? 3);
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
+    if(!Number.isInteger(requestedMineCount)||requestedMineCount<1||requestedMineCount>24) return res.status(400).json({error:'Mines must be a whole number from 1 to 24'});
+    const mineCount = requestedMineCount;
     const existingGame = getActiveMinesGame(req.user.id);
     if(existingGame){
       return res.status(400).json({error:'Finish or cash out your current Mines game first'});
@@ -4045,7 +4047,7 @@ app.post('/api/casino/mines/reveal', authMiddleware, async(req,res)=>{
     const minesOdds = effective.minesOdds;
     const remainingSafe = 25 - game.mineCount - game.revealedSafe.size;
     const remainingTiles = 25 - game.revealedSafe.size;
-    const desiredSafe = remainingSafe>0 && Math.random() < getAdjustedSafeChance(remainingSafe/remainingTiles, minesOdds, game.mineCount);
+    const desiredSafe = remainingSafe>0 && secureRandomFloat() < getAdjustedSafeChance(remainingSafe/remainingTiles, minesOdds, game.mineCount);
     flipMineCell(game, index, desiredSafe);
     const hitMine = game.mineSet.has(index);
     if(hitMine){
@@ -4085,6 +4087,8 @@ app.post('/api/casino/mines/cashout', authMiddleware, async(req,res)=>{
     const multiplier = getMinesMultiplier(game.revealedSafe.size, game.mineCount);
     const payout = Math.floor(game.betAmount * multiplier);
     const profit = payout - game.betAmount;
+    game.status='settling';
+    minesGames.delete(req.user.id);
     await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
     const betId = generateId('cbm');
     await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
@@ -4092,7 +4096,6 @@ app.post('/api/casino/mines/cashout', authMiddleware, async(req,res)=>{
     await recordTx(req.user.id, profit, 'casino_mines', betId, `Mines: cashed out after ${game.revealedSafe.size} safe pick${game.revealedSafe.size===1?'':'s'} with ${game.mineCount} mine${game.mineCount===1?'':'s'}`);
     invalidateCasinoBetsCache(req.user.id);
     game.status='cashed';
-    minesGames.delete(req.user.id);
     const updated = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     res.json({
       state:serializeMinesState(game,true),
@@ -4106,13 +4109,13 @@ app.post('/api/casino/mines/cashout', authMiddleware, async(req,res)=>{
 
 app.post('/api/casino/limbo', authMiddleware, async(req,res)=>{
   try{
-    const amount = Math.floor(Number(req.body.betAmount));
+    const amount = parseCasinoBetAmount(req.body.betAmount);
     const target = Number(req.body.target);
-    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     if(!Number.isFinite(target) || target < 1.01 || target > 10000) return res.status(400).json({error:'Target must be between 1.01× and 10,000×'});
     const user = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     if(!user || Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
-    const outcome = Math.max(1,Math.floor((0.99/(1-Math.random()))*100)/100);
+    const outcome = Math.max(1,Math.floor((0.99/(1-secureRandomFloat()))*100)/100);
     const won = outcome >= target;
     const payout = won ? Math.floor(amount*target) : 0;
     const profit = payout-amount;
@@ -4132,10 +4135,16 @@ app.post('/api/casino/limbo', authMiddleware, async(req,res)=>{
 async function recordCrashResult(userId,bet,outcome,payout,profit,multiplier){
   if(bet.recorded) return;
   bet.recorded=true;
-  await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
-    [bet.id,userId,'crash',bet.betAmount,outcome,payout,profit,Date.now()]);
-  await recordTx(userId,profit,'casino_crash',bet.id,`Crash: ${outcome==='win'?'cashed out':'crashed'} at ${multiplier.toFixed(2)}x on ⬡${bet.betAmount}`);
-  invalidateCasinoBetsCache(userId);
+  try{
+    await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
+      [bet.id,userId,'crash',bet.betAmount,outcome,payout,profit,Date.now()]);
+    await recordTx(userId,profit,'casino_crash',bet.id,`Crash: ${outcome==='win'?'cashed out':'crashed'} at ${multiplier.toFixed(2)}x on ⬡${bet.betAmount}`);
+  }catch(error){
+    // Recording must never reopen a wager after its balance has settled.
+    console.error('Crash result logging error:',error);
+  }finally{
+    invalidateCasinoBetsCache(userId);
+  }
 }
 function currentCrashMultiplier(now=Date.now()){
   if(crashRound.phase!=='running'||!crashRound.startedAt) return crashRound.phase==='crashed' ? Number(crashRound.threshold||1) : 1;
@@ -4236,8 +4245,8 @@ app.get('/api/casino/crash/state', authMiddleware, async(req,res)=>{
 
 app.post('/api/casino/crash/start', authMiddleware, async(req,res)=>{
   try{
-    const amount=Math.floor(Number(req.body.betAmount));
-    if(!amount || amount<1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    const amount=parseCasinoBetAmount(req.body.betAmount);
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     await tickCrashEngine();
     if(crashBets.has(req.user.id)) return res.status(400).json({error:'You already have a queued or active Crash bet'});
     const user=await db.get('SELECT credits,name FROM users WHERE id=?',[req.user.id]);
@@ -4286,9 +4295,9 @@ app.post('/api/casino/crash/finish', authMiddleware, async(req,res)=>{
 
 app.post('/api/casino/coinflip', authMiddleware, async(req,res)=>{
   try{
-    const amount = Math.floor(Number(req.body.betAmount));
+    const amount = parseCasinoBetAmount(req.body.betAmount);
     const side = String(req.body.side||'heads').toLowerCase();
-    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     if(!['heads','tails'].includes(side)) return res.status(400).json({error:'Choose heads or tails'});
     const user = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
     if(Math.floor(user.credits) < amount) return res.status(400).json({error:'Insufficient credits'});
@@ -4298,11 +4307,12 @@ app.post('/api/casino/coinflip', authMiddleware, async(req,res)=>{
       ? (side==='heads'?'tails':'heads')
       : coinflipOdds>=200
         ? side
-        : (Math.random() < (coinflipOdds/200) ? side : (side==='heads'?'tails':'heads'));
+        : (secureRandomFloat() < (coinflipOdds/200) ? side : (side==='heads'?'tails':'heads'));
     const won = landed===side;
-    const payout = won ? amount*2 : 0;
+    const payout = won ? Math.floor(amount*1.98) : 0;
     const profit = payout - amount;
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[amount,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     if(won) await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
     const betId=generateId('cbc');
     await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
@@ -4316,13 +4326,13 @@ app.post('/api/casino/coinflip', authMiddleware, async(req,res)=>{
 
 app.post('/api/casino/roulette', authMiddleware, async(req,res)=>{
   try{
-    const amount = Math.floor(Number(req.body.betAmount));
+    const amount = parseCasinoBetAmount(req.body.betAmount);
     const betType = String(req.body.betType||'red').toLowerCase();
     const value = req.body.value;
     const validTypes = new Set(['red','black','even','odd','low','high','dozen1','dozen2','dozen3','number']);
-    if(!amount || amount < 1) return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(!amount) return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     if(!validTypes.has(betType)) return res.status(400).json({error:'Invalid roulette bet'});
-    if(betType==='number' && (value===undefined || Number(value)<0 || Number(value)>36)) return res.status(400).json({error:'Choose a number from 0 to 36'});
+    if(betType==='number' && (!Number.isInteger(Number(value)) || Number(value)<0 || Number(value)>36)) return res.status(400).json({error:'Choose a whole number from 0 to 36'});
     const winningSet = getRouletteWinningNumbers(betType, value);
     if(!winningSet.size) return res.status(400).json({error:'Choose at least one valid number'});
     const user = await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);
@@ -4334,7 +4344,8 @@ app.post('/api/casino/roulette', authMiddleware, async(req,res)=>{
     const payout = won ? Math.floor(amount * multiplier) : 0;
     const profit = payout - amount;
     const meta = getRouletteMeta(number);
-    await db.run('UPDATE users SET credits=credits-? WHERE id=?',[amount,req.user.id]);
+    const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);
+    if(toSafeNumber(debit.rowsAffected,0)<1) return res.status(400).json({error:'Insufficient credits'});
     if(won) await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);
     const betId=generateId('cbr');
     await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',
@@ -4377,9 +4388,9 @@ const KENO_PAYTABLE={
 };
 app.post('/api/casino/keno',authMiddleware,async(req,res)=>{
   try{
-    const amount=Math.floor(Number(req.body.betAmount));
+    const amount=parseCasinoBetAmount(req.body.betAmount);
     const picks=[...new Set((Array.isArray(req.body.picks)?req.body.picks:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=40))];
-    if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});
+    if(!amount)return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
     if(picks.length<1||picks.length>10)return res.status(400).json({error:'Choose between 1 and 10 numbers'});
     const drawn=shuffle(Array.from({length:40},(_,i)=>i+1)).slice(0,10).sort((a,b)=>a-b);
     const hits=picks.filter(n=>drawn.includes(n));
@@ -4390,12 +4401,13 @@ app.post('/api/casino/keno',authMiddleware,async(req,res)=>{
   }catch(e){res.status(String(e.message).includes('Insufficient')?400:500).json({error:e.message});}
 });
 
-const WHEEL_SEGMENTS=[0,1,0,1.2,0,1,0.5,2,0,1,0.5,3,0,1.5,0.8,3];
+// 98.75% base RTP: the weighted segment average must remain below 1.00.
+const WHEEL_SEGMENTS=[0,1,0,1.2,0,1,0.5,2,0,1,0.5,2.5,0,1.5,0.6,4];
 app.post('/api/casino/wheel',authMiddleware,async(req,res)=>{
   try{
-    const amount=Math.floor(Number(req.body.betAmount));
-    if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});
-    const index=Math.floor(Math.random()*WHEEL_SEGMENTS.length);
+    const amount=parseCasinoBetAmount(req.body.betAmount);
+    if(!amount)return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});
+    const index=secureRandomInt(WHEEL_SEGMENTS.length);
     const multiplier=WHEEL_SEGMENTS[index];
     const payout=Math.floor(amount*multiplier);
     const settled=await settleInstantCasinoBet(req.user.id,'wheel',amount,payout,`Wheel: landed on ${multiplier}x`);
@@ -4408,10 +4420,10 @@ function dragonMultiplier(level,columns){return Number((Math.pow(columns*0.97,le
 function publicDragonState(game){return {difficulty:game.difficulty,columns:game.columns,level:game.level,maxLevels:9,multiplier:dragonMultiplier(game.level,game.columns),potentialPayout:Math.floor(game.betAmount*dragonMultiplier(game.level,game.columns)),betAmount:game.betAmount};}
 app.post('/api/casino/dragon-tower/start',authMiddleware,async(req,res)=>{
   try{
-    const amount=Math.floor(Number(req.body.betAmount));const difficulty=String(req.body.difficulty||'easy').toLowerCase();const columns=DRAGON_COLUMNS[difficulty];
-    if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});if(!columns)return res.status(400).json({error:'Invalid difficulty'});if(dragonTowerGames.has(req.user.id)){const existing=dragonTowerGames.get(req.user.id),currentUser=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);return res.json({state:publicDragonState(existing),newBalance:Math.floor(currentUser.credits),resumed:true});}
+    const amount=parseCasinoBetAmount(req.body.betAmount);const difficulty=String(req.body.difficulty||'easy').toLowerCase();const columns=DRAGON_COLUMNS[difficulty];
+    if(!amount)return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});if(!columns)return res.status(400).json({error:'Invalid difficulty'});if(dragonTowerGames.has(req.user.id)){const existing=dragonTowerGames.get(req.user.id),currentUser=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);return res.json({state:publicDragonState(existing),newBalance:Math.floor(currentUser.credits),resumed:true});}
     const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);if(toSafeNumber(debit.rowsAffected,0)<1)return res.status(400).json({error:'Insufficient credits'});
-    const game={id:generateId('cdt'),betAmount:amount,difficulty,columns,level:0,safeRows:Array.from({length:9},()=>Math.floor(Math.random()*columns))};dragonTowerGames.set(req.user.id,game);
+    const game={id:generateId('cdt'),betAmount:amount,difficulty,columns,level:0,safeRows:Array.from({length:9},()=>secureRandomInt(columns))};dragonTowerGames.set(req.user.id,game);
     const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({state:publicDragonState(game),newBalance:Math.floor(user.credits)});
   }catch(e){res.status(500).json({error:e.message});}
 });
@@ -4428,7 +4440,9 @@ async function settleInstantCasinoBetLossOnly(userId,game,amount,description){
   const betId=generateId(`cb${game.slice(0,2)}`);await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,userId,game,amount,'loss',0,-amount,Date.now()]);await recordTx(userId,-amount,`casino_${game}`,betId,description);invalidateCasinoBetsCache(userId);const user=await db.get('SELECT credits FROM users WHERE id=?',[userId]);return {newBalance:Math.floor(user.credits)};
 }
 async function cashoutDragonTower(userId,game,completed=false){
-  const multiplier=dragonMultiplier(game.level,game.columns),payout=Math.floor(game.betAmount*multiplier),profit=payout-game.betAmount;await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,userId]);const betId=generateId('cbdt');await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,userId,'dragon_tower',game.betAmount,'win',payout,profit,Date.now()]);await recordTx(userId,profit,'casino_dragon_tower',betId,`Dragon Tower: ${completed?'completed':'cashed out'} at ${multiplier}x`);invalidateCasinoBetsCache(userId);dragonTowerGames.delete(userId);const user=await db.get('SELECT credits FROM users WHERE id=?',[userId]);return {cashedOut:true,completed,multiplier,payout,profit,state:publicDragonState(game),newBalance:Math.floor(user.credits)};
+  if(dragonTowerGames.get(userId)!==game) throw new Error('Tower is already settling');
+  dragonTowerGames.delete(userId);
+  const multiplier=dragonMultiplier(game.level,game.columns),payout=Math.floor(game.betAmount*multiplier),profit=payout-game.betAmount;await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,userId]);const betId=generateId('cbdt');await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,userId,'dragon_tower',game.betAmount,'win',payout,profit,Date.now()]);await recordTx(userId,profit,'casino_dragon_tower',betId,`Dragon Tower: ${completed?'completed':'cashed out'} at ${multiplier}x`);invalidateCasinoBetsCache(userId);const user=await db.get('SELECT credits FROM users WHERE id=?',[userId]);return {cashedOut:true,completed,multiplier,payout,profit,state:publicDragonState(game),newBalance:Math.floor(user.credits)};
 }
 app.post('/api/casino/dragon-tower/cashout',authMiddleware,async(req,res)=>{try{const game=dragonTowerGames.get(req.user.id);if(!game||game.level<1)return res.status(400).json({error:'Reveal a safe tile before cashing out'});res.json(await cashoutDragonTower(req.user.id,game));}catch(e){res.status(500).json({error:e.message});}});
 
@@ -4436,7 +4450,7 @@ function baccaratValue(card){return ['10','J','Q','K'].includes(card.v)?0:card.v
 function baccaratTotal(cards){return cards.reduce((sum,card)=>sum+baccaratValue(card),0)%10;}
 app.post('/api/casino/baccarat',authMiddleware,async(req,res)=>{
   try{
-    const amount=Math.floor(Number(req.body.betAmount));const betOn=String(req.body.betOn||'player').toLowerCase();if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});if(!['player','banker','tie'].includes(betOn))return res.status(400).json({error:'Choose Player, Banker, or Tie'});
+    const amount=parseCasinoBetAmount(req.body.betAmount);const betOn=String(req.body.betOn||'player').toLowerCase();if(!amount)return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});if(!['player','banker','tie'].includes(betOn))return res.status(400).json({error:'Choose Player, Banker, or Tie'});
     const deck=makeDeck(),player=[deck.pop(),deck.pop()],banker=[deck.pop(),deck.pop()];let pTotal=baccaratTotal(player),bTotal=baccaratTotal(banker),playerThird=null;
     if(pTotal<8&&bTotal<8){if(pTotal<=5){playerThird=deck.pop();player.push(playerThird);pTotal=baccaratTotal(player);}const third=playerThird?baccaratValue(playerThird):null;const bankerDraw=third===null?bTotal<=5:bTotal<=2||(bTotal===3&&third!==8)||(bTotal===4&&third>=2&&third<=7)||(bTotal===5&&third>=4&&third<=7)||(bTotal===6&&third>=6&&third<=7);if(bankerDraw)banker.push(deck.pop());bTotal=baccaratTotal(banker);}
     const result=pTotal===bTotal?'tie':pTotal>bTotal?'player':'banker';const multiplier=betOn==='tie'?9:betOn==='banker'?1.95:2;const payout=result===betOn?Math.floor(amount*multiplier):0;const settled=await settleInstantCasinoBet(req.user.id,'baccarat',amount,payout,`Baccarat: ${betOn} bet, ${result} won`);res.json({player,banker,playerTotal:pTotal,bankerTotal:bTotal,result,multiplier,payout,...settled});
@@ -4450,10 +4464,10 @@ function videoPokerResult(hand){
   return {label:'No Win',multiplier:0};
 }
 app.post('/api/casino/video-poker/deal',authMiddleware,async(req,res)=>{
-  try{const amount=Math.floor(Number(req.body.betAmount));if(!amount||amount<1)return res.status(400).json({error:'Minimum bet is ⬡1'});if(videoPokerGames.has(req.user.id)){const existing=videoPokerGames.get(req.user.id),currentUser=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);return res.json({hand:existing.hand,newBalance:Math.floor(currentUser.credits),resumed:true});}const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);if(toSafeNumber(debit.rowsAffected,0)<1)return res.status(400).json({error:'Insufficient credits'});const deck=buildDeck52(),hand=Array.from({length:5},()=>deck.pop());videoPokerGames.set(req.user.id,{id:generateId('cvp'),betAmount:amount,deck,hand});const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({hand,newBalance:Math.floor(user.credits)});}catch(e){res.status(500).json({error:e.message});}
+  try{const amount=parseCasinoBetAmount(req.body.betAmount);if(!amount)return res.status(400).json({error:`Bet must be a whole number from 1 to ${MAX_CASINO_BET.toLocaleString()} credits`});if(videoPokerGames.has(req.user.id)){const existing=videoPokerGames.get(req.user.id),currentUser=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);return res.json({hand:existing.hand,newBalance:Math.floor(currentUser.credits),resumed:true});}const debit=await db.run('UPDATE users SET credits=credits-? WHERE id=? AND credits>=?',[amount,req.user.id,amount]);if(toSafeNumber(debit.rowsAffected,0)<1)return res.status(400).json({error:'Insufficient credits'});const deck=buildDeck52(),hand=Array.from({length:5},()=>deck.pop());videoPokerGames.set(req.user.id,{id:generateId('cvp'),betAmount:amount,deck,hand});const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({hand,newBalance:Math.floor(user.credits)});}catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/casino/video-poker/draw',authMiddleware,async(req,res)=>{
-  try{const game=videoPokerGames.get(req.user.id);if(!game)return res.status(400).json({error:'No active hand'});const holds=new Set((Array.isArray(req.body.holds)?req.body.holds:[]).map(Number).filter(i=>i>=0&&i<5));game.hand=game.hand.map((card,index)=>holds.has(index)?card:game.deck.pop());const result=videoPokerResult(game.hand),payout=Math.floor(game.betAmount*result.multiplier),profit=payout-game.betAmount;if(payout)await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);const betId=game.id;await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,req.user.id,'video_poker',game.betAmount,payout?'win':'loss',payout,profit,Date.now()]);await recordTx(req.user.id,profit,'casino_video_poker',betId,`Video Poker: ${result.label}`);invalidateCasinoBetsCache(req.user.id);videoPokerGames.delete(req.user.id);const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({hand:game.hand,...result,payout,profit,newBalance:Math.floor(user.credits)});}catch(e){res.status(500).json({error:e.message});}
+  try{const game=videoPokerGames.get(req.user.id);if(!game)return res.status(400).json({error:'No active hand'});videoPokerGames.delete(req.user.id);const holds=new Set((Array.isArray(req.body.holds)?req.body.holds:[]).map(Number).filter(i=>i>=0&&i<5));game.hand=game.hand.map((card,index)=>holds.has(index)?card:game.deck.pop());const result=videoPokerResult(game.hand),payout=Math.floor(game.betAmount*result.multiplier),profit=payout-game.betAmount;if(payout)await db.run('UPDATE users SET credits=credits+? WHERE id=?',[payout,req.user.id]);const betId=game.id;await db.run('INSERT INTO casino_bets (id,user_id,game,bet_amount,outcome,payout,profit,timestamp) VALUES (?,?,?,?,?,?,?,?)',[betId,req.user.id,'video_poker',game.betAmount,payout?'win':'loss',payout,profit,Date.now()]);await recordTx(req.user.id,profit,'casino_video_poker',betId,`Video Poker: ${result.label}`);invalidateCasinoBetsCache(req.user.id);const user=await db.get('SELECT credits FROM users WHERE id=?',[req.user.id]);res.json({hand:game.hand,...result,payout,profit,newBalance:Math.floor(user.credits)});}catch(e){res.status(500).json({error:e.message});}
 });
 
 app.get('/api/casino/my-bets', authMiddleware, async(req,res)=>{
@@ -4545,7 +4559,7 @@ app.post('/api/spin', authMiddleware, async(req,res)=>{
       {credits:200, weight:3},
     ];
     const total=prizes.reduce((s,p)=>s+p.weight,0);
-    let r=Math.random()*total,winner=prizes[0];
+    let r=secureRandomFloat()*total,winner=prizes[0];
     for(const p of prizes){r-=p.weight;if(r<=0){winner=p;break;}}
     await db.run('UPDATE users SET credits=credits+? WHERE id=?',[winner.credits,req.user.id]);
     await db.run('INSERT INTO spin_log (id,user_id,credits_won,timestamp) VALUES (?,?,?,?)',
