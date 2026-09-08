@@ -409,6 +409,20 @@
   .style-choice{padding:16px;border:1px solid var(--border-hi);border-radius:16px;background:var(--bg3);cursor:pointer;transition:.18s;text-align:left;color:var(--text)}
   .style-choice:hover,.style-choice.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-bg)}
   .style-choice strong{display:block;font-size:14px;margin-bottom:5px}.style-choice span{font-size:11px;color:var(--text3);line-height:1.45}
+  /* Sclshi.tv */
+  .tv-shell{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start}
+  .tv-stage{position:relative;min-height:560px;overflow:hidden;border:1px solid rgba(59,158,255,.3);border-radius:24px;background:radial-gradient(circle at 20% 15%,rgba(59,158,255,.2),transparent 34%),radial-gradient(circle at 82% 88%,rgba(0,208,132,.14),transparent 36%),#070d16;box-shadow:0 24px 48px rgba(0,0,0,.28)}
+  .tv-remote{display:block;width:100%;min-height:560px;height:560px;object-fit:cover;background:#070d16}
+  .tv-local{position:absolute;right:18px;bottom:18px;width:158px;aspect-ratio:4/5;object-fit:cover;border-radius:16px;background:#111827;border:1px solid rgba(255,255,255,.2);box-shadow:0 14px 30px rgba(0,0,0,.35);transform:scaleX(-1)}
+  .tv-waiting{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:26px;text-align:center;background:linear-gradient(180deg,rgba(5,12,22,.35),rgba(5,12,22,.78));transition:opacity .2s}
+  .tv-waiting-card{max-width:370px}.tv-orbit{width:76px;height:76px;margin:0 auto 18px;border:3px solid rgba(59,158,255,.2);border-top-color:var(--blue);border-right-color:var(--green);border-radius:50%;animation:tvOrbit 1.25s linear infinite}
+  .tv-status-chip{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--border-hi);border-radius:999px;background:var(--bg3);font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+  .tv-status-light{width:7px;height:7px;border-radius:50%;background:var(--text3)}.tv-status-chip.waiting .tv-status-light{background:var(--gold);animation:pulse 1.2s ease-in-out infinite}.tv-status-chip.live .tv-status-light{background:var(--green)}
+  .tv-controls{display:grid;grid-template-columns:1fr 1fr;gap:9px}.tv-action{padding:11px 12px;border:1px solid var(--border-hi);border-radius:12px;background:var(--bg3);color:var(--text);font:700 13px 'Inter',sans-serif;cursor:pointer}.tv-action:hover:not(:disabled){border-color:var(--blue);color:#fff}.tv-action:disabled{opacity:.45;cursor:not-allowed}.tv-action.primary{background:linear-gradient(135deg,var(--blue),#266dc9);border-color:transparent;color:#fff}.tv-action.danger{color:var(--red);border-color:var(--red-dim)}
+  .tv-chat{display:flex;flex-direction:column;min-height:250px}.tv-chat-log{flex:1;min-height:180px;max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px 10px}.tv-message{align-self:flex-start;max-width:88%;padding:9px 11px;border-radius:12px 12px 12px 3px;background:var(--bg3);color:var(--text2);font-size:12px;line-height:1.45}.tv-message.me{align-self:flex-end;border-radius:12px 12px 3px 12px;background:var(--blue-bg);border:1px solid var(--blue-dim);color:var(--text)}
+  .tv-rule{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px;line-height:1.45;color:var(--text2)}.tv-rule:last-child{border-bottom:0}.tv-rule strong{color:var(--blue)}
+  @keyframes tvOrbit{to{transform:rotate(360deg)}}
+  @media(max-width:900px){.tv-shell{grid-template-columns:1fr}.tv-stage,.tv-remote{min-height:420px;height:420px}.tv-local{width:124px;right:14px;bottom:14px}}
   @media(max-width:700px){body[data-site-style="terminal"] .topbar,body[data-site-style="terminal"] .nav-tabs{padding-left:16px;padding-right:16px}body[data-site-style="terminal"] .main-content{padding:22px 16px}.style-choice-grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -558,6 +572,7 @@
   <div class="nav-tabs">
     <div class="nav-tab active" data-tab="markets" onclick="switchTab('markets')">Markets</div>
     <div class="nav-tab" data-tab="casino" onclick="switchTab('casino')">Casino</div>
+    <div class="nav-tab" data-tab="tv" onclick="switchTab('tv')">Sclshi.tv</div>
     <div class="nav-tab" data-tab="portfolio" onclick="switchTab('portfolio')">My Bets</div>
     <div class="nav-tab" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</div>
     <div class="nav-tab" data-tab="messages" onclick="switchTab('messages')">Messages <span id="msg-badge" style="display:none;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></div>
@@ -1139,6 +1154,56 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- SCLSHI.TV -->
+    <div id="tab-tv" class="tab-content">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+        <div>
+          <h2 style="font-size:22px;font-weight:800;letter-spacing:-.03em;">Sclshi.tv</h2>
+          <p style="font-size:12px;color:var(--text3);margin-top:4px;">Meet another verified Sclshi student for a quick video conversation.</p>
+        </div>
+        <div id="tv-status-chip" class="tv-status-chip"><span class="tv-status-light"></span><span id="tv-status-text">Offline</span></div>
+      </div>
+      <div class="tv-shell">
+        <section class="tv-stage">
+          <video id="tv-remote-video" class="tv-remote" autoplay playsinline></video>
+          <video id="tv-local-video" class="tv-local" autoplay muted playsinline style="display:none;"></video>
+          <div id="tv-waiting" class="tv-waiting">
+            <div class="tv-waiting-card">
+              <div class="tv-orbit"></div>
+              <div id="tv-waiting-title" style="font-size:20px;font-weight:800;color:var(--text);">Ready when you are</div>
+              <p id="tv-waiting-copy" style="font-size:13px;line-height:1.6;color:var(--text2);margin-top:9px;">Turn on your camera to find another verified Sclshi student.</p>
+            </div>
+          </div>
+        </section>
+        <aside style="display:flex;flex-direction:column;gap:16px;">
+          <div class="panel" style="margin:0;">
+            <div class="panel-title">Match Controls</div>
+            <div id="tv-peer-name" style="font-size:13px;color:var(--text2);margin:-5px 0 14px;">No active match</div>
+            <div class="tv-controls">
+              <button id="tv-start-btn" class="tv-action primary" onclick="startSclshiTv()">Start video</button>
+              <button id="tv-next-btn" class="tv-action" onclick="nextSclshiTv()" disabled>Next</button>
+              <button id="tv-stop-btn" class="tv-action" onclick="stopSclshiTv()" disabled>Stop</button>
+              <button id="tv-report-btn" class="tv-action danger" onclick="reportSclshiTv()" disabled>Report & block</button>
+            </div>
+          </div>
+          <div class="panel tv-chat" style="margin:0;">
+            <div class="panel-title">Chat</div>
+            <div id="tv-chat-log" class="tv-chat-log"><p style="font-size:12px;color:var(--text3);text-align:center;margin:auto 0;">Chat is available once you are matched.</p></div>
+            <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:11px;">
+              <input id="tv-chat-input" type="text" maxlength="500" placeholder="Message your match" disabled style="min-width:0;flex:1;padding:9px 10px;font-size:12px;" onkeydown="if(event.key==='Enter')sendSclshiTvMessage()">
+              <button id="tv-send-btn" class="btn-admin btn-sm" onclick="sendSclshiTvMessage()" disabled>Send</button>
+            </div>
+          </div>
+          <div class="panel" style="margin:0;">
+            <div class="panel-title">School Space Rules</div>
+            <div class="tv-rule"><strong>01</strong><span>Be respectful. This is for verified Sclshi school accounts only.</span></div>
+            <div class="tv-rule"><strong>02</strong><span>Do not share personal contact details, passwords, or private images.</span></div>
+            <div class="tv-rule"><strong>03</strong><span>Use report and block to immediately end an unsafe or inappropriate match.</span></div>
+          </div>
+        </aside>
       </div>
     </div>
 
@@ -2133,6 +2198,8 @@ async function doResendCode(){
   catch(e){alert(e.message);}
 }
 function doLogout(){
+  stopSclshiTv({notify:false});
+  if(tvState.pollId){clearInterval(tvState.pollId);tvState.pollId=null;}
   authToken=null;currentUser=null;localStorage.removeItem('ew_token');sessionStorage.removeItem('access_granted');
   adminThemePreviewSchool='';
   sessionStorage.removeItem('popup_tab_unlocked');
@@ -2513,6 +2580,7 @@ async function renderExchangeTab(){
 
 const TAB_ROUTES={
   markets:'/',
+  tv:'/tv',
   portfolio:'/portfolio',
   leaderboard:'/leaderboard',
   messages:'/messages',
@@ -2549,6 +2617,7 @@ function switchTab(tab,{updateHistory=true,replace=false}={}){
     history[replace?'replaceState':'pushState']({tab},'',TAB_ROUTES[tab]);
   }
   if(tab==='markets')renderMarkets();
+  if(tab==='tv')renderSclshiTv();
   if(tab==='portfolio')renderPortfolio();
   if(tab==='leaderboard')renderLeaderboard();
   if(tab==='messages')renderMessages();
@@ -2562,6 +2631,239 @@ function switchTab(tab,{updateHistory=true,replace=false}={}){
 window.addEventListener('popstate',()=>{
   if(currentUser) restoreTabFromPath();
 });
+
+// ── SCLSHI.TV ──
+const tvState={
+  status:'idle',session:null,stream:null,pc:null,iceServers:[],pollId:null,
+  polling:false,messageAfter:0,shownMessages:new Set(),pendingCandidates:[],offerSent:false
+};
+
+function tvNode(id){return document.getElementById(id);}
+function tvIsOpen(){return document.getElementById('tab-tv')?.classList.contains('active');}
+
+function updateSclshiTvUI(note=''){
+  const isMatched=tvState.status==='matched'&&!!tvState.session;
+  const isWaiting=tvState.status==='waiting';
+  const hasCamera=!!tvState.stream;
+  const status=tvNode('tv-status-chip');
+  const statusText=tvNode('tv-status-text');
+  const waiting=tvNode('tv-waiting');
+  const waitingTitle=tvNode('tv-waiting-title');
+  const waitingCopy=tvNode('tv-waiting-copy');
+  const peerName=tvNode('tv-peer-name');
+  const local=tvNode('tv-local-video');
+  const start=tvNode('tv-start-btn');
+  const next=tvNode('tv-next-btn');
+  const stop=tvNode('tv-stop-btn');
+  const report=tvNode('tv-report-btn');
+  const input=tvNode('tv-chat-input');
+  const send=tvNode('tv-send-btn');
+  if(!status) return;
+  status.className=`tv-status-chip ${isMatched?'live':isWaiting?'waiting':''}`;
+  statusText.textContent=isMatched?'Live match':isWaiting?'Finding a match':hasCamera?'Camera ready':'Offline';
+  if(waiting){
+    waiting.style.display=isMatched?'none':'flex';
+    waitingTitle.textContent=isWaiting?'Finding your match…':hasCamera?'Camera is ready':'Ready when you are';
+    waitingCopy.textContent=note || (isWaiting?'We will connect you when another verified Sclshi student is available.':hasCamera?'Press Start matching whenever you are ready.':'Turn on your camera to find another verified Sclshi student.');
+  }
+  if(local) local.style.display=hasCamera?'block':'none';
+  if(peerName) peerName.textContent=isMatched ? `${tvState.session.peer?.name||'Sclshi student'}${tvState.session.peer?.grade?` · ${tvState.session.peer.grade}`:''}` : 'No active match';
+  if(start){start.disabled=isWaiting||isMatched;start.textContent=hasCamera?'Find match':'Start video';}
+  if(next) next.disabled=!hasCamera;
+  if(stop) stop.disabled=!hasCamera&&!isWaiting&&!isMatched;
+  if(report) report.disabled=!isMatched;
+  if(input) input.disabled=!isMatched;
+  if(send) send.disabled=!isMatched;
+}
+
+function clearSclshiTvChat(){
+  tvState.messageAfter=0;
+  tvState.shownMessages.clear();
+  const log=tvNode('tv-chat-log');
+  if(log) log.innerHTML='<p style="font-size:12px;color:var(--text3);text-align:center;margin:auto 0;">Chat is available once you are matched.</p>';
+}
+
+function cleanupSclshiTvConnection({stopMedia=false}={}){
+  if(tvState.pc){
+    try{tvState.pc.onicecandidate=null;tvState.pc.ontrack=null;tvState.pc.close();}catch(e){}
+  }
+  tvState.pc=null;
+  tvState.pendingCandidates=[];
+  tvState.offerSent=false;
+  const remote=tvNode('tv-remote-video');
+  if(remote) remote.srcObject=null;
+  if(stopMedia&&tvState.stream){
+    tvState.stream.getTracks().forEach(track=>track.stop());
+    tvState.stream=null;
+    const local=tvNode('tv-local-video');
+    if(local) local.srcObject=null;
+  }
+}
+
+async function renderSclshiTv(){
+  updateSclshiTvUI();
+  if(!tvState.pollId) tvState.pollId=setInterval(pollSclshiTv,1800);
+  if(!tvState.iceServers.length){
+    try{const config=await api('GET','/tv/config');tvState.iceServers=config.iceServers||[];}catch(e){showToast(e.message);}
+  }
+  await pollSclshiTv();
+}
+
+async function startSclshiTv(){
+  if(!navigator.mediaDevices?.getUserMedia){showToast('This browser does not support camera and microphone access.');return;}
+  try{
+    if(!tvState.stream){
+      tvState.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});
+      const local=tvNode('tv-local-video');
+      if(local){local.srcObject=tvState.stream;local.play().catch(()=>{});}
+    }
+    const data=await api('POST','/tv/join',{});
+    await applySclshiTvStatus(data);
+  }catch(e){
+    showToast(e.name==='NotAllowedError'?'Camera and microphone access is required to use Sclshi.tv.':e.message);
+    updateSclshiTvUI();
+  }
+}
+
+async function applySclshiTvStatus(data){
+  const previousId=tvState.session?.id;
+  tvState.status=data.state||'idle';
+  if(tvState.status==='matched'&&data.session){
+    tvState.session=data.session;
+    if(previousId!==data.session.id) clearSclshiTvChat();
+    await activateSclshiTvSession(data.session);
+  }else{
+    if(previousId) cleanupSclshiTvConnection();
+    tvState.session=null;
+    if(tvState.status==='idle') clearSclshiTvChat();
+  }
+  updateSclshiTvUI();
+}
+
+async function pollSclshiTv(){
+  if(tvState.polling||!authToken) return;
+  tvState.polling=true;
+  try{
+    const data=await api('GET','/tv/status');
+    await applySclshiTvStatus(data);
+    if(tvState.status==='matched'&&tvState.session){
+      await Promise.all([pollSclshiTvSignals(),pollSclshiTvMessages()]);
+    }
+  }catch(e){
+    if(tvIsOpen()&&e.message!=='Invalid token') showToast(e.message);
+  }finally{tvState.polling=false;}
+}
+
+async function activateSclshiTvSession(session){
+  if(tvState.pc||!tvState.stream) return;
+  const pc=new RTCPeerConnection({iceServers:tvState.iceServers});
+  tvState.pc=pc;
+  tvState.stream.getTracks().forEach(track=>pc.addTrack(track,tvState.stream));
+  pc.ontrack=event=>{
+    const remote=tvNode('tv-remote-video');
+    if(remote){remote.srcObject=event.streams[0];remote.play().catch(()=>{});}
+  };
+  pc.onicecandidate=event=>{
+    if(event.candidate&&tvState.session?.id===session.id){
+      api('POST',`/tv/signals/${session.id}`,{type:'candidate',payload:event.candidate.toJSON()}).catch(()=>{});
+    }
+  };
+  pc.onconnectionstatechange=()=>{
+    if(['failed','disconnected'].includes(pc.connectionState)) updateSclshiTvUI('Connection is reconnecting. You can tap Next to try another match.');
+  };
+  if(session.userOneId===currentUser?.id&&!tvState.offerSent){
+    tvState.offerSent=true;
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await api('POST',`/tv/signals/${session.id}`,{type:'offer',payload:offer});
+  }
+}
+
+async function pollSclshiTvSignals(){
+  if(!tvState.session||!tvState.pc) return;
+  const sessionId=tvState.session.id;
+  const data=await api('GET',`/tv/signals/${sessionId}`);
+  for(const signal of data.signals||[]) await handleSclshiTvSignal(signal,sessionId);
+}
+
+async function handleSclshiTvSignal(signal,sessionId){
+  const pc=tvState.pc;
+  if(!pc||tvState.session?.id!==sessionId) return;
+  if(signal.type==='offer'){
+    await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
+    for(const candidate of tvState.pendingCandidates) await pc.addIceCandidate(candidate);
+    tvState.pendingCandidates=[];
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await api('POST',`/tv/signals/${sessionId}`,{type:'answer',payload:answer});
+  }else if(signal.type==='answer'){
+    await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
+  }else if(signal.type==='candidate'){
+    const candidate=new RTCIceCandidate(signal.payload);
+    if(pc.remoteDescription) await pc.addIceCandidate(candidate);
+    else tvState.pendingCandidates.push(candidate);
+  }
+}
+
+async function nextSclshiTv(){
+  if(!tvState.stream) return startSclshiTv();
+  try{
+    await api('POST','/tv/next',{});
+    cleanupSclshiTvConnection();
+    tvState.status='idle';tvState.session=null;clearSclshiTvChat();
+    const data=await api('POST','/tv/join',{});
+    await applySclshiTvStatus(data);
+  }catch(e){showToast(e.message);}
+}
+
+async function stopSclshiTv({notify=true}={}){
+  const wasActive=!!(tvState.stream||tvState.session||tvState.status==='waiting');
+  try{if(authToken&&wasActive) await api('POST','/tv/stop',{});}catch(e){}
+  cleanupSclshiTvConnection({stopMedia:true});
+  tvState.status='idle';tvState.session=null;clearSclshiTvChat();updateSclshiTvUI();
+  if(notify&&wasActive) showToast('Sclshi.tv stopped.');
+}
+
+async function sendSclshiTvMessage(){
+  const input=tvNode('tv-chat-input');
+  const body=input?.value.trim();
+  if(!body||!tvState.session) return;
+  try{
+    const data=await api('POST',`/tv/messages/${tvState.session.id}`,{body});
+    input.value='';appendSclshiTvMessage(data.message);
+  }catch(e){showToast(e.message);}
+}
+
+async function pollSclshiTvMessages(){
+  if(!tvState.session) return;
+  const data=await api('GET',`/tv/messages/${tvState.session.id}?after=${tvState.messageAfter}`);
+  for(const message of data.messages||[]) appendSclshiTvMessage(message);
+}
+
+function appendSclshiTvMessage(message){
+  if(!message||tvState.shownMessages.has(message.id)) return;
+  tvState.shownMessages.add(message.id);
+  tvState.messageAfter=Math.max(tvState.messageAfter,Number(message.createdAt)||0);
+  const log=tvNode('tv-chat-log');
+  if(!log) return;
+  const empty=log.querySelector('p');if(empty) empty.remove();
+  const el=document.createElement('div');
+  el.className=`tv-message ${message.senderId===currentUser?.id?'me':''}`;
+  el.textContent=message.body;
+  log.appendChild(el);log.scrollTop=log.scrollHeight;
+}
+
+async function reportSclshiTv(){
+  if(!tvState.session) return;
+  const reason=prompt('What happened? (for example: inappropriate behavior, bullying, or unsafe content)');
+  if(!reason?.trim()) return;
+  if(!confirm('Report and block this person? This ends the match immediately.')) return;
+  try{
+    await api('POST','/tv/report',{reason:reason.trim()});
+    cleanupSclshiTvConnection();tvState.status='idle';tvState.session=null;clearSclshiTvChat();updateSclshiTvUI('The match ended. Your report was saved and this account was blocked.');
+    showToast('Report saved. The match has ended.');
+  }catch(e){showToast(e.message);}
+}
 
 // ── ASSISTANCE ──
 function bindAssistanceRuntime(){

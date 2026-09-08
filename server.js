@@ -514,6 +514,50 @@ async function initDB() {
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     )
+    ;CREATE TABLE IF NOT EXISTS tv_queue (
+      user_id TEXT PRIMARY KEY,
+      joined_at INTEGER NOT NULL
+    )
+    ;CREATE TABLE IF NOT EXISTS tv_sessions (
+      id TEXT PRIMARY KEY,
+      user_one_id TEXT NOT NULL,
+      user_two_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      ended_at INTEGER DEFAULT NULL,
+      end_reason TEXT DEFAULT ''
+    )
+    ;CREATE TABLE IF NOT EXISTS tv_signals (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      recipient_id TEXT NOT NULL,
+      signal_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+    ;CREATE TABLE IF NOT EXISTS tv_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+    ;CREATE TABLE IF NOT EXISTS tv_blocks (
+      blocker_id TEXT NOT NULL,
+      blocked_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (blocker_id, blocked_id)
+    )
+    ;CREATE TABLE IF NOT EXISTS tv_reports (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      reporter_id TEXT NOT NULL,
+      reported_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      details TEXT DEFAULT '',
+      created_at INTEGER NOT NULL
+    )
 
   `);
 
@@ -576,6 +620,11 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_exchange_loans_borrower_status_due_at ON exchange_loans(borrower_id, status, due_at ASC);
       CREATE INDEX IF NOT EXISTS idx_exchange_loans_lender_status_due_at ON exchange_loans(lender_id, status, due_at ASC);
       CREATE INDEX IF NOT EXISTS idx_exchange_repayments_loan_created_at ON exchange_repayments(loan_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tv_queue_joined_at ON tv_queue(joined_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_tv_sessions_active_users ON tv_sessions(status, user_one_id, user_two_id);
+      CREATE INDEX IF NOT EXISTS idx_tv_signals_recipient_session ON tv_signals(recipient_id, session_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_tv_messages_session_time ON tv_messages(session_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_tv_reports_created_at ON tv_reports(created_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique ON users(phone) WHERE phone IS NOT NULL;
     `);
     fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
@@ -1480,6 +1529,38 @@ async function createNotification(userId, type, title, body, link='') {
     [generateId('ntf'),userId,type,String(title||'').slice(0,160),String(body||'').slice(0,500),String(link||'').slice(0,120),Date.now()]);
   bumpNotificationVersion(userId);
 }
+
+async function getTvSessionForUser(userId) {
+  return db.get(
+    `SELECT s.*, peer.id AS peer_id, peer.name AS peer_name, peer.grade AS peer_grade, peer.school AS peer_school
+     FROM tv_sessions s
+     JOIN users peer ON peer.id=CASE WHEN s.user_one_id=? THEN s.user_two_id ELSE s.user_one_id END
+     WHERE s.status='active' AND (s.user_one_id=? OR s.user_two_id=?)
+     ORDER BY s.created_at DESC LIMIT 1`,
+    [userId, userId, userId]
+  );
+}
+
+async function canUseSclshiTv(userId) {
+  const user=await db.get('SELECT id,role,school FROM users WHERE id=?',[userId]);
+  return !!user && user.role==='student' && !!String(user.school||'').trim();
+}
+
+async function closeTvSession(sessionId, reason='stopped') {
+  if(!sessionId) return;
+  await db.run("UPDATE tv_sessions SET status='ended',ended_at=?,end_reason=? WHERE id=? AND status='active'",[Date.now(),reason,sessionId]);
+}
+
+function tvSessionForClient(session) {
+  if(!session) return null;
+  return {
+    id:session.id,
+    userOneId:session.user_one_id,
+    userTwoId:session.user_two_id,
+    createdAt:session.created_at,
+    peer:{id:session.peer_id,name:session.peer_name||'Sclshi student',grade:session.peer_grade||'',school:session.peer_school||''},
+  };
+}
 async function getCasinoStatsBaseline() {
   const rows = await db.all("SELECT key,value FROM settings WHERE key IN ('casino_stats_baseline_wagered','casino_stats_baseline_profit')");
   const settings = Object.fromEntries(rows.map(row=>[row.key, row.value]));
@@ -2286,6 +2367,153 @@ app.get('/api/me', authMiddleware, async(req,res)=>{
   safeUser.lucky_streak = await getActiveLuckyStreak(req.user.id);
   res.json(safeUser);
 });
+
+// ── SCLSHI.TV ──
+// WebRTC media remains peer-to-peer; the server only manages matching, safety records,
+// and short-lived signaling data needed to establish a call.
+app.get('/api/tv/config', authMiddleware, async(req,res)=>{
+  try{
+    const configured=process.env.TV_ICE_SERVERS_JSON ? JSON.parse(process.env.TV_ICE_SERVERS_JSON) : null;
+    const iceServers=Array.isArray(configured) && configured.length
+      ? configured
+      : [{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}];
+    res.json({iceServers});
+  }catch(e){res.status(500).json({error:'Sclshi.tv network configuration is invalid'});}
+});
+
+app.get('/api/tv/status', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(session) return res.json({state:'matched',session:tvSessionForClient(session)});
+    const queued=await db.get('SELECT joined_at FROM tv_queue WHERE user_id=?',[req.user.id]);
+    res.json({state:queued?'waiting':'idle',joinedAt:queued?.joined_at||null});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/join', authMiddleware, async(req,res)=>{
+  try{
+    if(!(await canUseSclshiTv(req.user.id))) return res.status(403).json({error:'Sclshi.tv is available to student school accounts only'});
+    const existing=await getTvSessionForUser(req.user.id);
+    if(existing) return res.json({state:'matched',session:tvSessionForClient(existing)});
+    const now=Date.now();
+    await db.run('DELETE FROM tv_queue WHERE user_id=?',[req.user.id]);
+    const candidate=await db.get(
+      `SELECT q.user_id
+       FROM tv_queue q
+       JOIN users u ON u.id=q.user_id
+       WHERE q.user_id!=? AND u.role='student'
+         AND NOT EXISTS (SELECT 1 FROM tv_blocks b WHERE (b.blocker_id=? AND b.blocked_id=q.user_id) OR (b.blocker_id=q.user_id AND b.blocked_id=?))
+         AND NOT EXISTS (
+           SELECT 1 FROM tv_sessions old
+           WHERE old.ended_at>? AND ((old.user_one_id=? AND old.user_two_id=q.user_id) OR (old.user_two_id=? AND old.user_one_id=q.user_id))
+         )
+       ORDER BY q.joined_at ASC LIMIT 1`,
+      [req.user.id,req.user.id,req.user.id,now-(10*60*1000),req.user.id,req.user.id]
+    );
+    if(!candidate){
+      await db.run('INSERT OR REPLACE INTO tv_queue (user_id,joined_at) VALUES (?,?)',[req.user.id,now]);
+      return res.json({state:'waiting',joinedAt:now});
+    }
+    const sessionId=generateId('tv');
+    await db.run('DELETE FROM tv_queue WHERE user_id IN (?,?)',[req.user.id,candidate.user_id]);
+    await db.run('INSERT INTO tv_sessions (id,user_one_id,user_two_id,status,created_at) VALUES (?,?,?,\'active\',?)',[sessionId,candidate.user_id,req.user.id,now]);
+    const session=await getTvSessionForUser(req.user.id);
+    await createNotification(candidate.user_id,'tv_match','Sclshi.tv match','A school account is ready to connect with you.','/tv');
+    res.json({state:'matched',session:tvSessionForClient(session)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/stop', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(session) await closeTvSession(session.id,'stopped');
+    await db.run('DELETE FROM tv_queue WHERE user_id=?',[req.user.id]);
+    res.json({state:'idle'});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/next', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(session) await closeTvSession(session.id,'skipped');
+    await db.run('DELETE FROM tv_queue WHERE user_id=?',[req.user.id]);
+    res.json({state:'idle'});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.get('/api/tv/signals/:sessionId', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(!session||session.id!==req.params.sessionId) return res.status(403).json({error:'This Sclshi.tv session is no longer active'});
+    const signals=await db.all('SELECT id,sender_id,signal_type,payload FROM tv_signals WHERE session_id=? AND recipient_id=? ORDER BY created_at ASC LIMIT 50',[session.id,req.user.id]);
+    if(signals.length) await db.run('DELETE FROM tv_signals WHERE session_id=? AND recipient_id=?',[session.id,req.user.id]);
+    res.json({signals:signals.map(signal=>({id:signal.id,senderId:signal.sender_id,type:signal.signal_type,payload:JSON.parse(signal.payload)}))});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/signals/:sessionId', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(!session||session.id!==req.params.sessionId) return res.status(403).json({error:'This Sclshi.tv session is no longer active'});
+    const type=String(req.body.type||'');
+    if(!['offer','answer','candidate'].includes(type)) return res.status(400).json({error:'Invalid call signal'});
+    const payload=JSON.stringify(req.body.payload||{});
+    if(payload.length>16000) return res.status(400).json({error:'Call signal is too large'});
+    const recipientId=session.user_one_id===req.user.id?session.user_two_id:session.user_one_id;
+    await db.run('INSERT INTO tv_signals (id,session_id,sender_id,recipient_id,signal_type,payload,created_at) VALUES (?,?,?,?,?,?,?)',[generateId('tvs'),session.id,req.user.id,recipientId,type,payload,Date.now()]);
+    res.json({success:true});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.get('/api/tv/messages/:sessionId', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(!session||session.id!==req.params.sessionId) return res.status(403).json({error:'This Sclshi.tv session is no longer active'});
+    const after=Math.max(0,Number(req.query.after)||0);
+    const messages=await db.all('SELECT id,sender_id,body,created_at FROM tv_messages WHERE session_id=? AND created_at>? ORDER BY created_at ASC LIMIT 100',[session.id,after]);
+    res.json({messages:messages.map(message=>({id:message.id,senderId:message.sender_id,body:message.body,createdAt:message.created_at}))});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/messages/:sessionId', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(!session||session.id!==req.params.sessionId) return res.status(403).json({error:'This Sclshi.tv session is no longer active'});
+    const body=String(req.body.body||'').trim();
+    if(!body||body.length>500) return res.status(400).json({error:'Messages must be between 1 and 500 characters'});
+    const message={id:generateId('tvm'),senderId:req.user.id,body,createdAt:Date.now()};
+    await db.run('INSERT INTO tv_messages (id,session_id,sender_id,body,created_at) VALUES (?,?,?,?,?)',[message.id,session.id,req.user.id,body,message.createdAt]);
+    res.json({message});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/report', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(!session) return res.status(400).json({error:'No active Sclshi.tv match to report'});
+    const reportedId=session.user_one_id===req.user.id?session.user_two_id:session.user_one_id;
+    const reason=String(req.body.reason||'').trim().slice(0,80);
+    const details=String(req.body.details||'').trim().slice(0,1000);
+    if(!reason) return res.status(400).json({error:'Choose a reason for the report'});
+    const now=Date.now();
+    await db.run('INSERT INTO tv_reports (id,session_id,reporter_id,reported_id,reason,details,created_at) VALUES (?,?,?,?,?,?,?)',[generateId('tvr'),session.id,req.user.id,reportedId,reason,details,now]);
+    await db.run('INSERT OR REPLACE INTO tv_blocks (blocker_id,blocked_id,created_at) VALUES (?,?,?)',[req.user.id,reportedId,now]);
+    await closeTvSession(session.id,'reported');
+    res.json({success:true});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post('/api/tv/block', authMiddleware, async(req,res)=>{
+  try{
+    const session=await getTvSessionForUser(req.user.id);
+    if(!session) return res.status(400).json({error:'No active Sclshi.tv match to block'});
+    const blockedId=session.user_one_id===req.user.id?session.user_two_id:session.user_one_id;
+    await db.run('INSERT OR REPLACE INTO tv_blocks (blocker_id,blocked_id,created_at) VALUES (?,?,?)',[req.user.id,blockedId,Date.now()]);
+    await closeTvSession(session.id,'blocked');
+    res.json({success:true});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
 app.get('/api/assistance/stream', assistanceStreamAuth, async(req,res)=>{
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
