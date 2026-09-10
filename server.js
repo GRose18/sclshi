@@ -1543,7 +1543,7 @@ async function getTvSessionForUser(userId) {
 
 async function canUseSclshiTv(userId) {
   const user=await db.get('SELECT id,role,school FROM users WHERE id=?',[userId]);
-  return !!user && user.role==='student' && !!String(user.school||'').trim();
+  return !!user && (user.role==='admin' || (user.role==='student' && !!String(user.school||'').trim()));
 }
 
 async function closeTvSession(sessionId, reason='stopped') {
@@ -2392,7 +2392,7 @@ app.get('/api/tv/status', authMiddleware, async(req,res)=>{
 
 app.post('/api/tv/join', authMiddleware, async(req,res)=>{
   try{
-    if(!(await canUseSclshiTv(req.user.id))) return res.status(403).json({error:'Sclshi.tv is available to student school accounts only'});
+    if(!(await canUseSclshiTv(req.user.id))) return res.status(403).json({error:'Sclshi.tv is available to student school accounts and admins'});
     const existing=await getTvSessionForUser(req.user.id);
     if(existing) return res.json({state:'matched',session:tvSessionForClient(existing)});
     const now=Date.now();
@@ -2401,7 +2401,7 @@ app.post('/api/tv/join', authMiddleware, async(req,res)=>{
       `SELECT q.user_id
        FROM tv_queue q
        JOIN users u ON u.id=q.user_id
-       WHERE q.user_id!=? AND u.role='student'
+       WHERE q.user_id!=? AND (u.role='admin' OR (u.role='student' AND TRIM(COALESCE(u.school,''))!=''))
          AND NOT EXISTS (SELECT 1 FROM tv_blocks b WHERE (b.blocker_id=? AND b.blocked_id=q.user_id) OR (b.blocker_id=q.user_id AND b.blocked_id=?))
          AND NOT EXISTS (
            SELECT 1 FROM tv_sessions old
