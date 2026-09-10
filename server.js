@@ -2393,33 +2393,41 @@ app.get('/api/tv/status', authMiddleware, async(req,res)=>{
 app.post('/api/tv/join', authMiddleware, async(req,res)=>{
   try{
     if(!(await canUseSclshiTv(req.user.id))) return res.status(403).json({error:'Sclshi.tv is available to student school accounts and admins'});
-    const existing=await getTvSessionForUser(req.user.id);
-    if(existing) return res.json({state:'matched',session:tvSessionForClient(existing)});
+    const tx=await db.transaction('write');
+    try{
+    const existing=(await tx.execute({sql:"SELECT id FROM tv_sessions WHERE status='active' AND (user_one_id=? OR user_two_id=?) LIMIT 1",args:[req.user.id,req.user.id]})).rows[0];
+    if(existing){
+      await tx.commit();
+      return res.json({state:'matched',session:tvSessionForClient(await getTvSessionForUser(req.user.id))});
+    }
     const now=Date.now();
-    await db.run('DELETE FROM tv_queue WHERE user_id=?',[req.user.id]);
-    const candidate=await db.get(
+    const run=(sql,args=[])=>tx.execute({sql,args});
+    await run('DELETE FROM tv_queue WHERE joined_at<?',[now-30000]);
+    await run('INSERT OR REPLACE INTO tv_queue (user_id,joined_at) VALUES (?,?)',[req.user.id,now]);
+    const candidate=(await run(
       `SELECT q.user_id
        FROM tv_queue q
        JOIN users u ON u.id=q.user_id
        WHERE q.user_id!=? AND (u.role='admin' OR (u.role='student' AND TRIM(COALESCE(u.school,''))!=''))
          AND NOT EXISTS (SELECT 1 FROM tv_blocks b WHERE (b.blocker_id=? AND b.blocked_id=q.user_id) OR (b.blocker_id=q.user_id AND b.blocked_id=?))
          AND NOT EXISTS (
-           SELECT 1 FROM tv_sessions old
-           WHERE old.ended_at>? AND ((old.user_one_id=? AND old.user_two_id=q.user_id) OR (old.user_two_id=? AND old.user_one_id=q.user_id))
+           SELECT 1 FROM tv_sessions active
+           WHERE active.status='active' AND (active.user_one_id=q.user_id OR active.user_two_id=q.user_id)
          )
        ORDER BY q.joined_at ASC LIMIT 1`,
-      [req.user.id,req.user.id,req.user.id,now-(10*60*1000),req.user.id,req.user.id]
-    );
+      [req.user.id,req.user.id,req.user.id]
+    )).rows[0];
     if(!candidate){
-      await db.run('INSERT OR REPLACE INTO tv_queue (user_id,joined_at) VALUES (?,?)',[req.user.id,now]);
+      await tx.commit();
       return res.json({state:'waiting',joinedAt:now});
     }
     const sessionId=generateId('tv');
-    await db.run('DELETE FROM tv_queue WHERE user_id IN (?,?)',[req.user.id,candidate.user_id]);
-    await db.run('INSERT INTO tv_sessions (id,user_one_id,user_two_id,status,created_at) VALUES (?,?,?,\'active\',?)',[sessionId,candidate.user_id,req.user.id,now]);
+    await run('DELETE FROM tv_queue WHERE user_id IN (?,?)',[req.user.id,candidate.user_id]);
+    await run('INSERT INTO tv_sessions (id,user_one_id,user_two_id,status,created_at) VALUES (?,?,?,\'active\',?)',[sessionId,candidate.user_id,req.user.id,now]);
+    await tx.commit();
     const session=await getTvSessionForUser(req.user.id);
-    await createNotification(candidate.user_id,'tv_match','Sclshi.tv match','A school account is ready to connect with you.','/tv');
     res.json({state:'matched',session:tvSessionForClient(session)});
+    }finally{tx.close();}
   }catch(e){res.status(500).json({error:e.message});}
 });
 

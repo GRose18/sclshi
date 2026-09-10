@@ -413,7 +413,7 @@
   .tv-shell{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start}
   .tv-stage{position:relative;min-height:560px;overflow:hidden;border:1px solid rgba(59,158,255,.3);border-radius:24px;background:radial-gradient(circle at 20% 15%,rgba(59,158,255,.2),transparent 34%),radial-gradient(circle at 82% 88%,rgba(0,208,132,.14),transparent 36%),#070d16;box-shadow:0 24px 48px rgba(0,0,0,.28)}
   .tv-remote{display:block;width:100%;min-height:560px;height:560px;object-fit:cover;background:#070d16}
-  .tv-local{position:absolute;right:18px;bottom:18px;width:158px;aspect-ratio:4/5;object-fit:cover;border-radius:16px;background:#111827;border:1px solid rgba(255,255,255,.2);box-shadow:0 14px 30px rgba(0,0,0,.35);transform:scaleX(-1)}
+  .tv-local{position:absolute;z-index:3;right:18px;bottom:18px;width:158px;aspect-ratio:4/5;object-fit:cover;border-radius:16px;background:#111827;border:1px solid rgba(255,255,255,.2);box-shadow:0 14px 30px rgba(0,0,0,.35);transform:scaleX(-1)}
   .tv-waiting{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:26px;text-align:center;background:linear-gradient(180deg,rgba(5,12,22,.35),rgba(5,12,22,.78));transition:opacity .2s}
   .tv-waiting-card{max-width:370px}.tv-orbit{width:76px;height:76px;margin:0 auto 18px;border:3px solid rgba(59,158,255,.2);border-top-color:var(--blue);border-right-color:var(--green);border-radius:50%;animation:tvOrbit 1.25s linear infinite}
   .tv-status-chip{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--border-hi);border-radius:999px;background:var(--bg3);font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
@@ -2714,11 +2714,18 @@ async function renderSclshiTv(){
 async function startSclshiTv(){
   if(!navigator.mediaDevices?.getUserMedia){showToast('This browser does not support camera and microphone access.');return;}
   try{
-    if(!tvState.stream){
+    if(!tvState.stream||!tvState.stream.getVideoTracks().some(track=>track.readyState==='live')){
+      if(tvState.stream) tvState.stream.getTracks().forEach(track=>track.stop());
       tvState.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});
-      const local=tvNode('tv-local-video');
-      if(local){local.srcObject=tvState.stream;local.play().catch(()=>{});}
     }
+    const local=tvNode('tv-local-video');
+    if(local){
+      local.srcObject=tvState.stream;
+      local.muted=true;
+      local.style.display='block';
+      local.play().catch(()=>showToast('Camera preview could not play. Try Stop, then Start video.'));
+    }
+    updateSclshiTvUI();
     const data=await api('POST','/tv/join',{});
     await applySclshiTvStatus(data);
   }catch(e){
@@ -2746,7 +2753,9 @@ async function pollSclshiTv(){
   if(tvState.polling||!authToken) return;
   tvState.polling=true;
   try{
-    const data=await api('GET','/tv/status');
+    const data=tvState.stream&&tvState.status==='waiting'
+      ? await api('POST','/tv/join',{})
+      : await api('GET','/tv/status');
     await applySclshiTvStatus(data);
     if(tvState.status==='matched'&&tvState.session){
       await Promise.all([pollSclshiTvSignals(),pollSclshiTvMessages()]);
