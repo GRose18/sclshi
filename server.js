@@ -2446,7 +2446,8 @@ app.get('/api/tv/signals/:sessionId', authMiddleware, async(req,res)=>{
     const session=await getTvSessionForUser(req.user.id);
     if(!session||session.id!==req.params.sessionId) return res.status(403).json({error:'This Sclshi.tv session is no longer active'});
     const signals=await db.all('SELECT id,sender_id,signal_type,payload FROM tv_signals WHERE session_id=? AND recipient_id=? ORDER BY created_at ASC LIMIT 50',[session.id,req.user.id]);
-    if(signals.length) await db.run('DELETE FROM tv_signals WHERE session_id=? AND recipient_id=?',[session.id,req.user.id]);
+    // Delete only this batch; signals can arrive while the SELECT is in flight.
+    if(signals.length) await db.run(`DELETE FROM tv_signals WHERE id IN (${signals.map(()=>'?').join(',')}) AND recipient_id=?`,[...signals.map(signal=>signal.id),req.user.id]);
     res.json({signals:signals.map(signal=>({id:signal.id,senderId:signal.sender_id,type:signal.signal_type,payload:JSON.parse(signal.payload)}))});
   }catch(e){res.status(500).json({error:e.message});}
 });

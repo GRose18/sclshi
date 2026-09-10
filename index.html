@@ -1169,6 +1169,7 @@
       <div class="tv-shell">
         <section class="tv-stage">
           <video id="tv-remote-video" class="tv-remote" autoplay playsinline></video>
+          <button id="tv-enable-audio" class="tv-action" style="display:none;position:absolute;top:16px;left:16px;z-index:2;" onclick="enableSclshiTvAudio()">Enable audio</button>
           <video id="tv-local-video" class="tv-local" autoplay muted playsinline style="display:none;"></video>
           <div id="tv-waiting" class="tv-waiting">
             <div class="tv-waiting-card">
@@ -2691,7 +2692,8 @@ function cleanupSclshiTvConnection({stopMedia=false}={}){
   tvState.pendingCandidates=[];
   tvState.offerSent=false;
   const remote=tvNode('tv-remote-video');
-  if(remote) remote.srcObject=null;
+  if(remote){remote.srcObject=null;remote.muted=false;}
+  tvNode('tv-enable-audio').style.display='none';
   if(stopMedia&&tvState.stream){
     tvState.stream.getTracks().forEach(track=>track.stop());
     tvState.stream=null;
@@ -2761,7 +2763,18 @@ async function activateSclshiTvSession(session){
   tvState.stream.getTracks().forEach(track=>pc.addTrack(track,tvState.stream));
   pc.ontrack=event=>{
     const remote=tvNode('tv-remote-video');
-    if(remote){remote.srcObject=event.streams[0];remote.play().catch(()=>{});}
+    if(!remote||tvState.pc!==pc) return;
+    if(event.streams[0]) remote.srcObject=event.streams[0];
+    else {
+      if(!remote.srcObject) remote.srcObject=new MediaStream();
+      remote.srcObject.addTrack(event.track);
+    }
+    remote.play().catch(async()=>{
+      if(tvState.pc!==pc) return;
+      remote.muted=true;
+      tvNode('tv-enable-audio').style.display='block';
+      try{await remote.play();}catch(e){showToast('Tap Enable audio to start playback.');}
+    });
   };
   pc.onicecandidate=event=>{
     if(event.candidate&&tvState.session?.id===session.id){
@@ -2777,6 +2790,13 @@ async function activateSclshiTvSession(session){
     await pc.setLocalDescription(offer);
     await api('POST',`/tv/signals/${session.id}`,{type:'offer',payload:offer});
   }
+}
+
+async function enableSclshiTvAudio(){
+  const remote=tvNode('tv-remote-video');
+  remote.muted=false;
+  try{await remote.play();tvNode('tv-enable-audio').style.display='none';}
+  catch(e){showToast('Playback could not start. Please try again.');}
 }
 
 async function pollSclshiTvSignals(){
@@ -2798,6 +2818,8 @@ async function handleSclshiTvSignal(signal,sessionId){
     await api('POST',`/tv/signals/${sessionId}`,{type:'answer',payload:answer});
   }else if(signal.type==='answer'){
     await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
+    for(const candidate of tvState.pendingCandidates) await pc.addIceCandidate(candidate);
+    tvState.pendingCandidates=[];
   }else if(signal.type==='candidate'){
     const candidate=new RTCIceCandidate(signal.payload);
     if(pc.remoteDescription) await pc.addIceCandidate(candidate);
